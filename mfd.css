@@ -1,0 +1,845 @@
+/* v70 */
+* {
+    box-sizing: border-box;
+}
+body {
+    margin: 0;
+    padding: 0;
+    background-color: #080c14;
+    color: #c5d1e0;
+    font-family: monospace;
+    overflow: hidden;
+    display: flex;
+    height: 100vh;
+}
+#sidebar {
+    width: 280px;
+    background: #0d1424;
+    border-right: 1px solid #1a2740;
+    display: flex;
+    flex-direction: column;
+    padding: 12px;
+    box-sizing: border-box;
+    gap: 12px;
+    z-index: 10;
+    overflow-y: auto;
+}
+#map-container {
+    flex-grow: 1;
+    position: relative;
+    background: #080c14;
+}
+canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    /* Disables the browser's own default touch gestures (page pinch-zoom,
+       scroll) on the canvas - without this, they can fight with the
+       custom touch pan/pinch-zoom/measure handlers in mfd.js, since some
+       default gesture handling starts before JS's preventDefault() has a
+       chance to run. */
+    touch-action: none;
+}
+.panel-section {
+    background: #131c31;
+    border: 1px solid #1f3053;
+    border-radius: 4px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex-shrink: 0;
+}
+.panel-section.compact { gap: 4px; }
+.panel-label {
+    font-size: 10px;
+    color: #00ffcc;
+    font-weight: bold;
+    letter-spacing: 1px;
+}
+.panel-hint {
+    font-size: 9px;
+    color: #8b9bb4;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+.panel-hint code {
+    background: #1a2740;
+    padding: 1px 4px;
+    border-radius: 2px;
+    font-size: 9px;
+}
+.panel-clickable { cursor: pointer; list-style: none; }
+.panel-clickable::-webkit-details-marker { display: none; }
+.panel-accent {
+    font-size: 10px;
+    color: #00ffcc;
+}
+.panel-input {
+    width: 100%;
+    background: #1a2740;
+    color: #fff;
+    border: 1px solid #2e4470;
+    border-radius: 3px;
+    padding: 6px;
+    font-family: monospace;
+    font-size: 11px;
+    box-sizing: border-box;
+}
+.panel-input-sm {
+    width: 70px;
+    background: #1a2740;
+    color: #fff;
+    border: 1px solid #2e4470;
+    border-radius: 3px;
+    padding: 4px;
+    font-family: monospace;
+    font-size: 11px;
+}
+.panel-select {
+    width: 100%;
+    background: #1a2740;
+    color: #fff;
+    border: 1px solid #2e4470;
+    border-radius: 3px;
+    padding: 6px;
+    font-family: monospace;
+    font-size: 11px;
+}
+.panel-btn {
+    background: #1a2740;
+    color: #c5d1e0;
+    border: 1px solid #2e4470;
+    border-radius: 3px;
+    padding: 8px;
+    font-family: monospace;
+    font-weight: bold;
+    font-size: 11px;
+    letter-spacing: 1px;
+    cursor: pointer;
+    text-align: center;
+}
+.panel-btn:active {
+    background: #00ffcc;
+    color: #05070a;
+    border-color: #00ffcc;
+}
+.btn-danger {
+    background: #3a1020;
+    border-color: #ff3366;
+    color: #ff3366;
+}
+.btn-danger:active {
+    background: #ff3366;
+    color: #fff;
+}
+.panel-check {
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+}
+.panel-inline {
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.panel-divider {
+    border-top: 1px solid #1f3053;
+    margin: 4px 0;
+}
+.panel-inner {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 4px;
+}
+.target-id-grid {
+    display: grid;
+    grid-template-columns: 42px 1fr;
+    gap: 4px;
+    font-size: 10px;
+}
+.target-id-grid input {
+    background: #1a2740;
+    color: #fff;
+    border: 1px solid #2e4470;
+    border-radius: 3px;
+    padding: 3px;
+    font-size: 10px;
+    font-family: monospace;
+    min-width: 0;
+}
+.unit { font-size: 10px; color: #8b9bb4; }
+.val-offline { color: #ff3366; }
+.threat-display {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.check-six-svg { flex-shrink: 0; }
+.calib-list {
+    font-size: 10px;
+    color: #8b9bb4;
+    max-height: 80px;
+    overflow-y: auto;
+}
+.panel-title {
+    font-size: 11px;
+    color: #00ffcc;
+    font-weight: bold;
+    letter-spacing: 1px;
+    margin-bottom: 2px;
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    user-select: none;
+}
+.panel-title::-webkit-details-marker {
+    display: none;
+}
+.panel-title::before {
+    content: "▸";
+    font-size: 9px;
+    transition: transform 0.15s ease;
+}
+details[open] > .panel-title::before {
+    transform: rotate(90deg);
+}
+.panel-title:hover {
+    color: #b7fff0;
+}
+.telemetry-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+}
+.telemetry-val {
+    color: #fff;
+    font-weight: bold;
+}
+.telemetry-val.status-safe { color: #33ff57; }
+.telemetry-val.status-caution { color: #ffcc00; }
+.telemetry-val.status-danger {
+    color: #ff3366;
+    animation: pulse-danger 1s infinite;
+}
+@keyframes pulse-danger {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+select, button {
+    background: #1a2740;
+    color: #fff;
+    border: 1px solid #2e4470;
+    padding: 6px;
+    font-family: monospace;
+    font-size: 11px;
+    border-radius: 3px;
+    cursor: pointer;
+}
+select:hover, button:hover {
+    border-color: #00ffcc;
+}
+label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: #8b9bb4;
+    cursor: pointer;
+}
+
+/* --- Mode controls: fixed bottom-right, always in the same place in
+   BOTH layouts. Hamburger only shows itself in Mobile mode (there's
+   nothing to open in Desktop mode - the sidebar's just always visible
+   there); the Desktop/Mobile toggle is always visible so you can always
+   get back. Grouped together in one flex row instead of two independently
+   fixed-position elements - simpler to keep aligned than two separate
+   position:fixed boxes that have to agree on their own coordinates. */
+#mode-controls {
+    position: fixed;
+    bottom: 10px;
+    right: 10px;
+    z-index: 30;
+    display: flex;
+    gap: 6px;
+}
+#btn-toggle-drawer {
+    display: none;
+    width: 40px;
+    height: 40px;
+    font-size: 18px;
+    padding: 0;
+}
+#btn-layout-toggle {
+    height: 40px;
+    padding: 0 12px;
+    font-size: 12px;
+    font-weight: bold;
+    white-space: nowrap;
+}
+
+/* --- COMPACT / DECK / MOBILE MODE ---
+   Sidebar becomes an off-canvas drawer instead of taking permanent width,
+   and touch targets grow so it's usable on a Deck screen or phone. */
+body.compact-mode {
+    display: block;
+}
+body.compact-mode #sidebar {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 82vw;
+    max-width: 340px;
+    transform: translateX(100%);
+    transition: transform 0.25s ease;
+    box-shadow: -8px 0 20px rgba(0, 0, 0, 0.6);
+}
+body.compact-mode.sidebar-open #sidebar {
+    transform: translateX(0);
+}
+body.compact-mode #map-container {
+    width: 100vw;
+    height: 100vh;
+}
+body.compact-mode #btn-toggle-drawer {
+    display: block;
+}
+body.compact-mode select,
+body.compact-mode button,
+body.compact-mode label {
+    font-size: 14px;
+    padding: 10px;
+    min-height: 40px;
+}
+body.compact-mode .panel-title {
+    font-size: 13px;
+}
+body.compact-mode .telemetry-row {
+    font-size: 14px;
+}
+/* Keep the mode-controls buttons themselves a consistent, deliberate size
+   regardless of mode - without this override, compact-mode's generic
+   "button" touch-sizing rule above would fight with the explicit sizing
+   already set on #mode-controls' own buttons. */
+body.compact-mode #btn-toggle-drawer,
+body.compact-mode #btn-layout-toggle,
+body.compact-mode #btn-back-to-map,
+body.compact-mode .mfd-bezel-square {
+    min-height: 0;
+}
+/* The generic compact-mode "button" touch-sizing rule above would also
+   blow out the bezel's small fixed-size squares with extra padding -
+   same override pattern as btn-toggle-drawer above. Font-size is left
+   alone (unlike earlier revisions) since the button's own text IS its
+   label now, not a separate element outside it. */
+body.compact-mode .mfd-bezel-square {
+    padding: 2px;
+    font-size: clamp(6px, 1.4vw, 9px);
+}
+
+/* --- MAP back button (mode-controls group) ---
+   Shown only while the MFD/Controls page is up, since that page hides
+   the sidebar entirely - this is the only way back while it's hidden. */
+#btn-back-to-map {
+    height: 40px;
+    padding: 0 12px;
+    font-size: 12px;
+    font-weight: bold;
+    font-family: monospace;
+    letter-spacing: 1px;
+    background: #131c31;
+    border: 1px solid #00ff66;
+    color: #00ff66;
+    border-radius: 4px;
+    cursor: pointer;
+    align-items: center;
+    text-shadow: 0 0 4px rgba(0,255,102,0.5);
+}
+#btn-back-to-map:active {
+    background: #00ff66;
+    color: #060a06;
+}
+
+/* --- MOBILE LAYOUT (Top Toolbar, clean phone-app style) ---
+   Three zones (left/center/right) so dropdowns land on the sides and
+   buttons land in the middle, regardless of how many of each end up
+   there. Everything relocated here is the REAL DOM element (same IDs,
+   same event listeners, see applyLayoutMode in mfd.js) - not a copy - so
+   all existing wiring keeps working unchanged. Everything not explicitly
+   listed here stays exactly where it already lives in #sidebar, which
+   becomes the hamburger-opened drawer. */
+#top-toolbar {
+    display: none;
+    position: sticky;
+    top: 0;
+    z-index: 25;
+    background: #0d1424;
+    border-bottom: 1px solid #1f3053;
+    height: 52px;
+    padding: 0 10px;
+    align-items: center;
+    flex-shrink: 0;
+}
+body.toolbar-mode {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+body.toolbar-mode #top-toolbar {
+    display: flex;
+}
+body.toolbar-mode #map-container {
+    flex: 1 1 auto;
+    width: 100%;
+    height: auto;
+    min-height: 0; /* lets the flex child actually shrink instead of overflowing */
+}
+#toolbar-left, #toolbar-center, #toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1 1 0;
+    min-width: 0;
+}
+#toolbar-left { justify-content: flex-start; }
+#toolbar-center { justify-content: center; }
+#toolbar-right { justify-content: flex-end; }
+
+/* Dropdowns size to their own content - "just enough to fit the text it
+   needs" - but genuinely SHRINK (not spill/overlap) when the window gets
+   too narrow to fit everything: flex-shrink enabled (was 0, rigid) with a
+   sane floor, plus ellipsis so shrinking text stays readable instead of
+   just getting clipped mid-word. */
+#top-toolbar select {
+    flex: 0 1 auto;
+    min-width: 50px;
+    width: auto;
+    max-width: 220px;
+    height: 36px;
+    font-size: 14px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+#top-toolbar button {
+    flex: 0 1 auto;
+    min-width: 28px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    height: 36px;
+    padding: 0 10px;
+    font-size: 13px;
+}
+#top-toolbar #primary-status-row {
+    font-size: 11px;
+    gap: 4px;
+    flex-shrink: 0;
+}
+#top-toolbar #primary-status-row span:first-child {
+    display: none; /* drop the "LINK:" label text in the bar - the dot/color already reads as status at a glance */
+}
+/* AIR THREAT ("check-six") - PERMANENT FIX for the overlap that kept
+   recurring: this used to be a separately position:fixed floating badge
+   that had to be manually kept clear of the toolbar/switcher/hamburger
+   via guessed pixel offsets, and that guessing was wrong twice in a row.
+   It's now just a normal flex child living INSIDE #toolbar-right,
+   alongside the weapon select/status/fullscreen button - the browser's
+   own flexbox layout keeps it correctly positioned relative to its
+   actual siblings automatically, so there is no pixel math to get wrong
+   and no separate z-index/stacking-order class of bug to reintroduce. */
+#top-toolbar #air-threat-row {
+    font-size: 11px;
+    gap: 4px;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+/* Two IDs here (not just #btn-fullscreen alone) deliberately outranks the
+   "#top-toolbar button" shrink rule above, which otherwise has HIGHER
+   specificity than a single ID selector (ID+element beats ID alone) and
+   would silently override this button's padding/font-size. */
+#top-toolbar #btn-fullscreen {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    font-size: 16px;
+    flex-shrink: 0; /* never squish this one - it's a fixed icon button, not text */
+}
+
+/* Drawer in Mobile mode only needs to clear the 52px toolbar bar at the
+   top and the mode-controls cluster at the bottom - nothing else is
+   fixed-position anymore (AIR THREAT lives inside the toolbar now, not
+   as a separate floating badge), so there's no other collision surface
+   left to guess clearances for. */
+body.toolbar-mode #sidebar {
+    top: 60px;
+    bottom: 60px;
+    padding-top: 12px;
+    padding-bottom: 12px;
+}
+
+/* --- Accessibility: Large Text Mode ---
+   A real accessibility mode, not just compact-mode's modest touch-target
+   bump (14px/40px) - meaningfully bigger text and controls everywhere,
+   in both layouts and regardless of screen size. Uses !important
+   deliberately: this file already has several mode-specific font-size
+   rules competing by specificity (compact-mode, toolbar-mode, etc.) -
+   chasing every one of them individually would be fragile and easy to
+   silently miss one. An opt-in accessibility override should always win,
+   full stop, not depend on selector ordering staying correct as this
+   file keeps growing. */
+body.large-text-mode {
+    font-size: 17px;
+}
+body.large-text-mode select,
+body.large-text-mode button,
+body.large-text-mode label,
+body.large-text-mode input {
+    font-size: 18px !important;
+    padding: 14px !important;
+    min-height: 48px !important;
+}
+body.large-text-mode .panel-title {
+    font-size: 17px !important;
+}
+body.large-text-mode .telemetry-row {
+    font-size: 17px !important;
+}
+body.large-text-mode .telemetry-val {
+    font-size: 18px !important;
+}
+body.large-text-mode #top-toolbar #air-threat-row {
+    font-size: 15px !important;
+}
+
+/* --- Controls / MFD Page (dedicated full view, cycled via SWITCH TO ...
+   button) ---
+   This is the uploaded "Modern Tactical MFD" asset wired up as the real
+   screen content (not just a style reference) - real HTML/canvas inside
+   a bezel frame, not canvas-drawn on the main map canvas. Hidden by
+   default; shown via display:grid when viewMode === "controls" (see
+   updateViewModeUI in mfd.js). The sidebar is hidden the whole time this
+   page is up (see elSidebar in mfd.js) - full-screen, self-contained. */
+.controls-page {
+    display: none; /* toggled to "grid" by JS */
+    position: absolute;
+    inset: 0;
+    z-index: 15;
+    background: #0b0f0b;
+    padding: 16px;
+    place-items: center;
+}
+#controls-page-content {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* --- Bezel frame: dark molded panel, buttons pinned around all used
+   edges (see renderControlsPage() in mfd.js). TOP = page tabs
+   (FLIGHT/WEAPONS/RADAR). LEFT = that page's gamepad buttons, overflowing
+   to BOTTOM once LEFT_CAPACITY (5) is used up. No right edge. --- */
+.mfd-bezel-frame {
+    position: relative;
+    width: min(92vw, 92vh, 700px);
+    aspect-ratio: 1 / 1;
+    background: linear-gradient(145deg, #181d18, #0a0d0a);
+    border: 4px solid #283228;
+    border-radius: 16px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.8), inset 0 0 10px rgba(0,0,0,0.9);
+    padding: 50px 40px;
+    box-sizing: border-box;
+}
+
+/* --- Screen: green-phosphor CRT with scanlines --- */
+.mfd-screen {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    background-color: #030803;
+    border: 2px solid #1a331a;
+    border-radius: 4px;
+    overflow: hidden;
+    box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.9);
+    color: #00ff66;
+    font-family: 'Courier New', Courier, monospace;
+    z-index: 1;
+}
+.mfd-screen::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%);
+    background-size: 100% 4px;
+    pointer-events: none;
+    z-index: 20;
+}
+.mfd-header {
+    position: absolute;
+    top: 14px; left: 16px; right: 16px;
+    display: flex;
+    justify-content: space-between;
+    font-size: clamp(9px, 2vw, 13px);
+    font-weight: bold;
+    z-index: 10;
+    text-shadow: 0 0 5px #00ff66;
+}
+.mfd-view {
+    position: absolute;
+    inset: 0;
+    display: none;
+    box-sizing: border-box;
+    padding: clamp(10px, 3vw, 24px);
+}
+.mfd-view.active {
+    display: block;
+}
+#mfd-radar-canvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 2;
+}
+
+/* Weapons view */
+.weapon-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: clamp(6px, 2vw, 14px);
+    margin-top: 12px;
+    position: relative;
+    z-index: 10;
+}
+.weapon-card {
+    border: 1px solid #004d1f;
+    background: rgba(0, 30, 10, 0.4);
+    padding: clamp(6px, 2vw, 12px);
+    border-radius: 4px;
+    font-size: clamp(9px, 2vw, 12px);
+}
+.weapon-card.selected {
+    border-color: #00ff66;
+    box-shadow: 0 0 8px #004d1f;
+}
+.weapon-title {
+    font-size: clamp(10px, 2.4vw, 14px);
+    font-weight: bold;
+    margin-bottom: 6px;
+    word-break: break-word;
+}
+.status-tag {
+    color: #ffaa00;
+    font-size: clamp(8px, 1.8vw, 11px);
+}
+.status-tag.status-ready {
+    color: #00ff66;
+}
+
+/* Flight status view */
+.controls-list {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(6px, 1.5vw, 12px);
+    position: relative;
+    z-index: 10;
+    font-size: clamp(10px, 2.2vw, 13px);
+}
+.control-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px dashed #004d1f;
+    padding-bottom: 6px;
+}
+
+/* --- Bezel buttons: pinned to an edge with position:absolute, one
+   perpendicular-axis percentage set per-instance by JS (edgeSlotPercent
+   in mfd.js) - same technique as the original asset's T1/MODE/T3 etc. */
+.mfd-bezel-square {
+    position: absolute;
+    appearance: none;
+    -webkit-appearance: none;
+    width: clamp(38px, 9vw, 52px);
+    height: clamp(28px, 6vw, 36px);
+    box-sizing: border-box;
+    margin: 0;
+    background: linear-gradient(180deg, #2a332a, #151a15);
+    border: 1px solid #3d4a3d;
+    border-radius: 3px;
+    color: #00ff66;
+    font-weight: bold;
+    font-size: clamp(6px, 1.4vw, 9px);
+    line-height: 1.1;
+    padding: 2px;
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+    transition: transform 0.05s ease, background 0.05s ease, border-color 0.1s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    overflow: hidden;
+    z-index: 30;
+}
+.mfd-bezel-square:active {
+    background: #004d1f;
+    border-color: #00ff66;
+    transform: scale(0.95);
+}
+.mfd-bezel-square-top { top: 10px; transform: translateX(-50%); }
+.mfd-bezel-square-bottom { bottom: 10px; transform: translateX(-50%); }
+.mfd-bezel-square-left { left: 6px; transform: translateY(-50%); }
+.mfd-bezel-square-top:active, .mfd-bezel-square-bottom:active { transform: translateX(-50%) scale(0.95); }
+.mfd-bezel-square-left:active { transform: translateY(-50%) scale(0.95); }
+
+/* Page-tab OSBs (top edge) glow when their page is the one showing. */
+.mfd-bezel-tab-square.active {
+    background: #004d1f;
+    border-color: #00ff66;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.5), 0 0 8px rgba(0,255,102,0.6);
+}
+
+/* Unused LEFT/BOTTOM slots for the current page - visible, dim, inert. */
+.mfd-bezel-square-disabled {
+    background: #14171a;
+    border-color: #262b2f;
+    color: #3a3f44;
+    cursor: default;
+    box-shadow: none;
+}
+.mfd-bezel-square-disabled:active {
+    transform: translateX(-50%);
+    background: #14171a;
+}
+.mfd-bezel-square-left.mfd-bezel-square-disabled:active {
+    transform: translateY(-50%);
+}
+
+/* Gear LED, inline with its button's label. */
+.mfd-bezel-led {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #444a55;
+    margin-right: 3px;
+}
+.mfd-bezel-led-up {
+    background: #444a55;
+}
+.mfd-bezel-led-down {
+    background: #00ff66;
+    box-shadow: 0 0 6px #00ff66;
+}
+.mfd-bezel-led-transition {
+    background: #ffaa00;
+    box-shadow: 0 0 6px #ffaa00;
+}
+
+/* --- EXTRA-SMALL SCREENS (phones, <480px) ---
+   Strips the sidebar to bare essentials: status, threats, and the view
+   toggle. Everything else collapses or hides. Touch targets stay large,
+   text stays readable, nothing overflows. */
+@media (max-width: 480px) {
+    #sidebar {
+        width: 90vw;
+        max-width: none;
+        padding: 8px;
+        gap: 6px;
+        font-size: 11px;
+    }
+    .panel-section {
+        padding: 8px;
+        gap: 4px;
+    }
+    .panel-title {
+        font-size: 10px;
+    }
+    .panel-btn {
+        padding: 10px 6px;
+        font-size: 10px;
+        min-height: 36px;
+    }
+    .panel-input, .panel-select {
+        font-size: 11px;
+        padding: 8px 6px;
+    }
+    .telemetry-row {
+        font-size: 11px;
+    }
+    .panel-hint {
+        font-size: 8px;
+    }
+    /* Hide non-essential sections on xs screens — they can still be
+       opened from the drawer, just default-collapsed and unobtrusive */
+    #sidebar > details:not([open]) {
+        border-color: transparent;
+        background: transparent;
+        padding: 4px 8px;
+    }
+    /* Top toolbar: tighter on phones */
+    #top-toolbar {
+        padding: 4px 6px;
+        gap: 4px;
+    }
+    #top-toolbar select,
+    #top-toolbar button {
+        font-size: 10px;
+        padding: 6px 4px;
+        min-height: 32px;
+    }
+    /* Mode controls: slightly smaller */
+    #mode-controls {
+        bottom: 6px;
+        right: 6px;
+    }
+    #btn-toggle-drawer {
+        width: 36px;
+        height: 36px;
+        font-size: 16px;
+    }
+    #btn-layout-toggle {
+        height: 36px;
+        padding: 0 8px;
+        font-size: 10px;
+    }
+    /* MFD bezel: shrink to fit phone viewport */
+    .mfd-bezel-frame {
+        padding: 36px 24px;
+    }
+    .mfd-bezel-square {
+        width: clamp(30px, 10vw, 44px);
+        height: clamp(22px, 7vw, 30px);
+        font-size: clamp(5px, 1.6vw, 8px);
+    }
+}
+
+/* Even smaller — truly tiny screens (<360px, e.g. older phones) */
+@media (max-width: 360px) {
+    #sidebar {
+        width: 100vw;
+        padding: 6px;
+    }
+    .mfd-bezel-frame {
+        padding: 28px 16px;
+        border-width: 2px;
+    }
+    .mfd-header {
+        font-size: 8px;
+        top: 8px;
+        left: 8px;
+        right: 8px;
+    }
+}

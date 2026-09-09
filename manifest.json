@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "WT Tactical MFD",
+  "version": "3.3.0",
+  "description": "Tactical MFD with dynamic AA threats and safety envelopes for War Thunder.",
+  "permissions": [
+    "tabs",
+    "windows"
+  ],
+  "host_permissions": [
+    "http://localhost:8111/*"
+  ],
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "action": {
+    "default_title": "Open Tactical MFD"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "wt-mfd-extension@local"
+    }
+  }
+}
