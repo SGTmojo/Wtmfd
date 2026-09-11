@@ -3,32 +3,195 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <!-- v67 -->
+    <!-- v91 -->
     <title>War Thunder MFD Tactical Map</title>
     <link rel="stylesheet" href="mfd.css">
 </head>
 <body>
 
-    <div id="mode-controls">
-        <button id="btn-back-to-map" title="Back to the tactical map" style="display:none;">MAP</button>
-        <button id="btn-toggle-drawer" title="Show/hide controls">☰</button>
-        <button id="btn-layout-toggle" title="Switch between Desktop and Mobile layout"></button>
-    </div>
-
     <header id="top-toolbar">
-        <div id="toolbar-left"></div>
-        <div id="toolbar-center"></div>
+        <div id="toolbar-left">
+            <button id="btn-center-player" class="tb-btn">CENTER</button>
+            <button id="btn-reset-view" class="tb-btn">RESET</button>
+            <button id="btn-toggle-touch-measure" class="tb-btn on" title="Toggle: finger-drag pans the map, or draws the measuring tool">&#9995; PAN</button>
+            <button id="btn-clear-measurer" class="tb-btn">CLR</button>
+        </div>
+        <div id="toolbar-center">
+            <span>SPD <b id="tb-val-spd">&mdash;</b></span>
+            <span>ALT <b id="tb-val-alt">&mdash;</b></span>
+            <span>HDG <b id="tb-val-hdg">&mdash;</b></span>
+        </div>
         <div id="toolbar-right">
-            <button id="btn-toggle-touch-measure" title="Toggle: finger-drag pans the map, or draws the measuring tool">✋ PAN</button>
-            <button id="btn-fullscreen" title="Toggle fullscreen">⛶</button>
+            <button id="btn-open-settings" class="tb-btn tb-icon" title="Settings" aria-label="Settings">&#9881;</button>
+            <button id="btn-toggle-view" class="tb-btn">MFD</button>
+            <button id="btn-fullscreen" class="tb-btn tb-icon" title="Toggle fullscreen" aria-label="Fullscreen">&#9974;</button>
         </div>
     </header>
 
-    <div id="sidebar">
+    <div id="map-container">
+        <canvas id="map-canvas"></canvas>
+
+        <div id="check-six-badge">
+            <svg viewBox="0 0 120 120">
+                <circle cx="60" cy="60" r="52" class="c6-face"/>
+                <g id="c6-ring">
+                    <g id="c6-ticks"></g>
+                    <text x="60" y="17"  class="c6-card">N</text>
+                    <text x="107" y="65" class="c6-card">E</text>
+                    <text x="60" y="112" class="c6-card">S</text>
+                    <text x="13" y="65"  class="c6-card">W</text>
+                </g>
+                <circle cx="60" cy="60" r="34" class="c6-inner"/>
+                <path d="M60,60 L26,60 A34,34 0 0,1 60,26 A34,34 0 0,1 94,60 Z" class="c6-fwd"/>
+                <polygon points="60,28 56,36 64,36" class="c6-nose"/>
+                <circle id="c6-blip" cx="60" cy="60" r="4" class="c6-blip"/>
+                <text x="60" y="64" id="c6-hdg" class="c6-hdg">---</text>
+            </svg>
+        </div>
+
+        <div id="statusbar">
+            <div class="row"><span class="k">LINK</span><span id="val-status" class="v val-offline">OFFLINE</span></div>
+            <div class="row"><span class="k">AA THREAT</span><span id="val-threat" class="v">-</span></div>
+            <div class="row"><span class="k">AIR THREAT</span><span id="val-air-threat" class="v">CLEAR</span></div>
+            <div class="row"><span class="k">NEAREST TGT</span><span id="val-target" class="v">-</span></div>
+            <div class="row"><span class="k">IN RANGE</span><span id="val-in-range" class="v">-</span></div>
+        </div>
+
+        <div id="controls-page-overlay" class="controls-page">
+            <div class="unit">
+                <span class="screw tl"></span><span class="screw tr"></span>
+                <span class="screw bl"></span><span class="screw br"></span>
+
+                <div class="row-h" id="rowTop"></div>
+
+                <div class="middle">
+                    <div class="col-v" id="colLeft"></div>
+
+                    <div class="glass"><div class="screen">
+                        <div class="legends lg-top"    id="lgTop"></div>
+                        <div class="legends lg-right"  id="lgRight"></div>
+                        <div class="legends lg-bottom" id="lgBottom"></div>
+                        <div class="legends lg-left"   id="lgLeft"></div>
+
+                        <div class="content">
+                            <div class="pagebar">
+                                <span id="pageTitle">FLIGHT</span><span class="pips" id="pips"></span>
+                            </div>
+                            <div class="pagestack">
+
+                                <!-- FLIGHT -->
+                                <div class="page active" id="pg-0">
+                                    <div class="pfd">
+                                        <div class="pfd-main">
+                                            <div class="tape" id="tapeIas">
+                                                <div class="tape-lbl">IAS</div>
+                                                <div class="tick" id="iasT1">-</div><div class="tick" id="iasT2">-</div>
+                                                <div class="cur" id="vIas">-</div>
+                                                <div class="tick" id="iasT3">-</div><div class="tick" id="iasT4">-</div>
+                                            </div>
+                                            <div class="adi">
+                                                <div class="bank-arc">&middot; &middot; &#9661; &middot; &middot;</div>
+                                                <div class="sky-gnd" id="skyGnd">
+                                                    <div class="sky"></div><div class="gnd"></div><div class="hzn"></div>
+                                                    <div class="ladder">
+                                                        <div class="rung" data-p="20"></div>
+                                                        <div class="rung" data-p="10"></div>
+                                                        <div class="rung" data-p="0"></div>
+                                                        <div class="rung" data-p="-10"></div>
+                                                        <div class="rung" data-p="-20"></div>
+                                                    </div>
+                                                </div>
+                                                <div class="bore"></div>
+                                            </div>
+                                            <div class="tape" id="tapeAlt">
+                                                <div class="tape-lbl">ALT</div>
+                                                <div class="tick" id="altT1">-</div><div class="tick" id="altT2">-</div>
+                                                <div class="cur" id="vAlt">-</div>
+                                                <div class="tick" id="altT3">-</div><div class="tick" id="altT4">-</div>
+                                            </div>
+                                        </div>
+                                        <div class="compass">
+                                            <div class="hdg-caret"></div>
+                                            <div class="rose" id="rose"></div>
+                                            <div class="hdg-box" id="vHdg">---</div>
+                                        </div>
+                                        <div class="pfd-foot">
+                                            <span>GEAR <b id="vGear">-</b></span>
+                                            <span>VS <b id="vVs">-</b></span>
+                                            <span>FLAP <b id="vFlap">-</b></span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- WEAPONS -->
+                                <div class="page" id="pg-1">
+                                    <div class="wpn">
+                                        <div class="plane-id">
+                                            <span class="name" id="planeName">NO VEHICLE</span>
+                                            <span class="br" id="planeBr">-</span>
+                                        </div>
+                                        <div>
+                                            <div class="sel-label">SELECTED STORE</div>
+                                            <div class="dd" id="wpnDd">
+                                                <div class="dd-face" id="wpnFace" tabindex="0" role="button" aria-haspopup="listbox">
+                                                    <span id="wpnName">NO WEAPON SELECTED</span><span class="caret">&#9660;</span>
+                                                </div>
+                                                <div class="dd-list" id="wpnList" role="listbox"></div>
+                                            </div>
+                                        </div>
+                                        <div class="ball" id="ballistics"></div>
+                                    </div>
+                                </div>
+
+                                <!-- RADAR -->
+                                <div class="page" id="pg-2">
+                                    <div class="rdr">
+                                        <canvas id="mfd-radar-canvas"></canvas>
+                                    </div>
+                                </div>
+
+                                <!-- MAP -->
+                                <div class="page" id="pg-3">
+                                    <canvas id="mfd-map-canvas"></canvas>
+                                    <div class="map-scale" id="mapScale">&mdash;</div>
+                                </div>
+
+                            </div>
+                        </div>
+                        <div id="mfd-gamepad-debug" class="mfd-gamepad-debug">Press a button to test...</div>
+                    </div></div>
+
+                    <div class="col-v" id="colRight"></div>
+                </div>
+
+                <div class="row-h" id="rowBottom"></div>
+
+                <div class="rockers">
+                    <div class="rocker"><label>PAGE</label>
+                        <button class="rocker-cap rocker-single" id="rockLeft" title="Previous page" aria-label="Previous page">&#9664;</button>
+                    </div>
+                    <div class="utils">
+                        <button class="util" id="btnMfdSettings" title="Settings" aria-label="Settings">&#9881;</button>
+                        <button class="util" id="btnMfdFullMap" title="Back to full-screen map" aria-label="Back to full-screen map">&#9974;</button>
+                    </div>
+                    <div class="rocker"><label>PAGE</label>
+                        <button class="rocker-cap rocker-single" id="rockRight" title="Next page" aria-label="Next page">&#9654;</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="settings-scrim"></div>
+    <aside id="sidebar">
+        <div class="settings-head"><span>SETTINGS</span>
+            <button id="btn-close-settings" class="tb-btn tb-icon" aria-label="Close">&#10005;</button></div>
+
         <div class="panel-section compact">
             <label class="panel-label">TELEMETRY SOURCE</label>
             <input type="text" id="input-telemetry-host" class="panel-input" placeholder="IP address (blank = auto)">
             <div class="panel-hint" id="val-telemetry-host-info">Using default</div>
+            <button id="btn-reconnect" class="panel-btn">RECONNECT</button>
         </div>
 
         <details class="panel-section">
@@ -54,40 +217,11 @@
         </details>
 
         <details class="panel-section" open>
-            <summary class="panel-title">MAP</summary>
-            <button id="btn-center-player" class="panel-btn">CENTER</button>
-            <button id="btn-reset-view" class="panel-btn">RESET VIEW</button>
-            <button id="btn-clear-measurer" class="panel-btn">CLEAR RULER</button>
-            <button id="btn-toggle-view" class="panel-btn">MFD VIEW</button>
-        </details>
-
-        <details class="panel-section" open>
-            <summary class="panel-title">STATUS</summary>
-            <div class="telemetry-row" id="primary-status-row"><span>LINK:</span> <span id="val-status" class="telemetry-val val-offline">OFFLINE</span></div>
-            <button id="btn-reconnect" class="panel-btn">RECONNECT</button>
+            <summary class="panel-title">TELEMETRY</summary>
             <div class="telemetry-row"><span>SPD:</span> <span id="val-speed" class="telemetry-val">0</span> <span class="unit">KM/H</span></div>
             <div class="telemetry-row"><span>ALT:</span> <span id="val-alt" class="telemetry-val">0</span> <span class="unit">M</span></div>
             <div class="telemetry-row"><span>LOCK:</span> <span id="val-radar" class="telemetry-val">-</span></div>
             <div class="telemetry-row"><span>PLAYER:</span> <span id="val-player-lock" class="telemetry-val">-</span></div>
-        </details>
-
-        <details class="panel-section" open>
-            <summary class="panel-title">THREATS</summary>
-            <div class="telemetry-row"><span>AA:</span> <span id="val-threat" class="telemetry-val status-safe">CLEAR</span></div>
-            <div class="telemetry-row" id="air-threat-row">
-                <span>AIR:</span>
-                <span class="threat-display">
-                    <svg width="28" height="28" viewBox="0 0 28 28" class="check-six-svg">
-                        <circle cx="14" cy="14" r="12" fill="none" stroke="#2e4470" stroke-width="1.5"/>
-                        <path d="M14,14 L2,14 A12,12 0 0,1 14,2 A12,12 0 0,1 26,14 Z" fill="rgba(139,155,180,0.08)"/>
-                        <polygon points="14,2 12,6 16,6" fill="#8b9bb4"/>
-                        <circle id="check-six-blip" cx="14" cy="14" r="3" fill="#ff3366" style="display:none;"/>
-                    </svg>
-                    <span id="val-air-threat" class="telemetry-val status-safe">CLEAR</span>
-                </span>
-            </div>
-            <div class="telemetry-row"><span>TGT:</span> <span id="val-target" class="telemetry-val">-</span></div>
-            <div class="telemetry-row"><span>RANGE:</span> <span id="val-in-range" class="telemetry-val">-</span></div>
         </details>
 
         <details class="panel-section">
@@ -138,17 +272,9 @@
             <div class="telemetry-row"><span>V0:</span> <span id="val-v0" class="telemetry-val">-</span></div>
             <div class="telemetry-row"><span>Release Alt:</span> <span id="val-release-alt" class="telemetry-val">-</span></div>
         </details>
-    </div>
-
-    <div id="map-container">
-        <canvas id="map-canvas"></canvas>
-        <div id="controls-page-overlay" class="controls-page">
-            <div id="controls-page-content"></div>
-        </div>
-    </div>
+    </aside>
 
     <script src="weapons-config.js"></script>
     <script src="mfd.js"></script>
 </body>
 </html>
-

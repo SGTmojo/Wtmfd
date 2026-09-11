@@ -1,4 +1,4 @@
-// v70
+// v91
 const FAST_POLL_MS = 250;
 const SLOW_POLL_MS = 500;
 // Safe even outside an extension context (unlike the old version, which
@@ -114,53 +114,61 @@ const btnToggleView = document.getElementById("btn-toggle-view");
 // later in the file is in the "temporal dead zone" until execution
 // reaches it, which was throwing "can't access lexical declaration
 // before initialization" the moment the page loaded.
-let viewMode = "map"; // "map" | "weapon" | "controls"
+let viewMode = "map"; // "map" | "controls" - the old standalone "weapon"
+// scope view (renderWeaponMFD) was retired in v73: the new MFD's WEAPONS
+// page (dropdown + ballistics readout) and RADAR page (B-scan) cover what
+// it used to show, per user confirmation during the v73 merge.
 
 const controlsPageOverlay = document.getElementById("controls-page-overlay");
 const elSidebar = document.getElementById("sidebar");
-const btnBackToMap = document.getElementById("btn-back-to-map");
+const topToolbar = document.getElementById("top-toolbar");
+const toolbarLeft = document.getElementById("toolbar-left");
+const toolbarCenter = document.getElementById("toolbar-center");
+const toolbarRight = document.getElementById("toolbar-right");
+const checkSixBadge = document.getElementById("check-six-badge");
+const statusBar = document.getElementById("statusbar");
 
 function updateViewModeUI() {
-    if (btnToggleView) {
-        btnToggleView.textContent = viewMode === "map" ? "SWITCH TO WEAPON MFD VIEW"
-            : viewMode === "weapon" ? "SWITCH TO CONTROLS VIEW"
-            : "SWITCH TO MAP VIEW";
-    }
-    if (controlsPageOverlay) controlsPageOverlay.style.display = viewMode === "controls" ? "grid" : "none";
-    // The MFD/Controls page is a full-screen self-contained bezel - the
-    // regular sidebar (weapon profile, map controls, telemetry, etc.)
-    // doesn't apply there and just gets in the way, so it's hidden for
-    // as long as this page is showing. btn-back-to-map is the only way
-    // back while it's hidden (see #mode-controls in mfd.html).
-    if (elSidebar) elSidebar.style.display = viewMode === "controls" ? "none" : "";
-    if (btnBackToMap) btnBackToMap.style.display = viewMode === "controls" ? "flex" : "none";
+    if (btnToggleView) btnToggleView.classList.toggle("on", viewMode === "controls");
+    if (controlsPageOverlay) controlsPageOverlay.style.display = viewMode === "controls" ? "flex" : "none";
+    // The MFD/Controls page is a full-screen self-contained bezel with its
+    // own gear/full-map util buttons between the rockers - the top
+    // toolbar, compass badge, and floating status strip are all map-view
+    // chrome and just get in the way while it's showing, so they're
+    // hidden for as long as this page is up.
+    if (topToolbar) topToolbar.style.display = viewMode === "controls" ? "none" : "";
+    if (checkSixBadge) checkSixBadge.style.display = viewMode === "controls" ? "none" : "";
+    if (statusBar) statusBar.style.display = viewMode === "controls" ? "none" : "";
 }
 
 function setViewMode(mode) {
     viewMode = mode;
     updateViewModeUI();
+    if (mode === "controls") renderControlsPage();
 }
 
 if (btnToggleView) {
     btnToggleView.addEventListener("click", () => {
-        setViewMode(viewMode === "map" ? "weapon"
-            : viewMode === "weapon" ? "controls"
-            : "map");
+        setViewMode(viewMode === "controls" ? "map" : "controls");
     });
 }
-if (btnBackToMap) {
-    btnBackToMap.addEventListener("click", () => setViewMode("map"));
-}
 updateViewModeUI();
-const btnToggleDrawer = document.getElementById("btn-toggle-drawer");
-const topToolbar = document.getElementById("top-toolbar");
-const toolbarLeft = document.getElementById("toolbar-left");
-const toolbarCenter = document.getElementById("toolbar-center");
-const toolbarRight = document.getElementById("toolbar-right");
-const primaryStatusRow = document.getElementById("primary-status-row");
-const airThreatRow = document.getElementById("air-threat-row");
+
+// ---------- Settings drawer (was the persistent Desktop sidebar - now
+// always an overlay in every layout, opened via the toolbar's gear icon,
+// per the approved map-mockup.html design). ----------
+const btnOpenSettings = document.getElementById("btn-open-settings");
+const btnCloseSettings = document.getElementById("btn-close-settings");
+const settingsScrim = document.getElementById("settings-scrim");
+function openSettings(show) {
+    document.body.classList.toggle("settings-open", show);
+}
+if (btnOpenSettings) btnOpenSettings.addEventListener("click", () => openSettings(true));
+if (btnCloseSettings) btnCloseSettings.addEventListener("click", () => openSettings(false));
+if (settingsScrim) settingsScrim.addEventListener("click", () => openSettings(false));
+window.addEventListener("keydown", (e) => { if (e.key === "Escape") openSettings(false); });
+
 const btnFullscreen = document.getElementById("btn-fullscreen");
-const btnLayoutToggle = document.getElementById("btn-layout-toggle");
 const btnToggleTouchMeasure = document.getElementById("btn-toggle-touch-measure");
 const chkLargeText = document.getElementById("chk-large-text");
 const inputTelemetryHost = document.getElementById("input-telemetry-host");
@@ -232,44 +240,51 @@ const GAMEPAD_BUTTON_CODES = Array.from({ length: 20 }, (_, i) => `H${i + 1}`);
 // bezel layout below (5 / 7 / 8 buttons - all 20 codes used, no page left
 // over).
 const DEFAULT_GAMEPAD_LABELS = {
-    // FLIGHT (5)
-    H1: "GEAR", H2: "FLAPS UP", H3: "FLAPS DOWN", H4: "COCKPIT LIGHT", H5: "NVG MODE",
-    // WEAPONS (7)
-    H6: "PRIMARY WPN", H7: "SECONDARY WPN", H8: "SEC RIPPLE QTY", H9: "LASER DESIG",
-    H10: "DEACT TGT PT", H11: "BALLISTIC CPU (RKT)", H12: "BALLISTIC CPU (GUN)",
-    // RADAR (8)
-    H13: "RADAR PWR", H14: "RADAR RANGE", H15: "RADAR SCOPE", H16: "RADAR MODE",
-    H17: "IRST TOGGLE", H18: "SEARCH MODE", H19: "RADAR STAB", H20: "RTN TO BORE",
+    // FLIGHT (H1-H5)
+    H1: "GEAR",             H2: "FLAPS UP",      H3: "FLAPS DOWN",
+    H4: "COCKPIT LIGHT",    H5: "NVG MODE",
+    // WEAPONS (H6-H12)
+    H6: "PERIODIC FLARES",  H7: "SECONDARY WPN", H8: "SEC RIPPLE QTY",
+    H9: "LASER DESIG",      H10: "DEACT TGT PT",
+    H11: "BALLISTIC CPU (RKT)", H12: "BALLISTIC CPU (GUN)",
+    // RADAR (H13-H20)
+    H13: "RADAR PWR",       H14: "RADAR RANGE",  H15: "RADAR SCOPE",
+    H16: "RADAR MODE",      H17: "SEARCH MODE",  H18: "TGT CYCLE",
+    H19: "TGT LOCK",        H20: "CUSTOM",
 };
 
-// The 3 pages for the dedicated Controls page - each a real, independent
+// The 4 pages for the dedicated Controls page - each a real, independent
 // set of buttons/outputs (not the same handful reused with different
 // labels), matching the BTN_TRIGGER_HAPPY1-20 range confirmed working.
-// 5 + 7 + 8 = 20, using every code exactly once. Renaming a button here
-// only changes the on-screen label - if you move a function to a
-// different H-code you still need to rebind that H-number in WT's own
-// Controls settings to match.
+// 5 + 7 + 8 = 20, using every code exactly once (MAP uses no gamepad
+// codes - its top row becomes real map controls instead, see
+// mapControls below). Renaming a button here only changes the on-screen
+// label - if you move a function to a different H-code you still need to
+// rebind that H-number in WT's own Controls settings to match.
 const GAMEPAD_PAGES = [
     { title: "FLIGHT", codes: ["H1", "H2", "H3", "H4", "H5"] },
     { title: "WEAPONS", codes: ["H6", "H7", "H8", "H9", "H10", "H11", "H12"] },
     { title: "RADAR", codes: ["H13", "H14", "H15", "H16", "H17", "H18", "H19", "H20"] },
+    { title: "MAP", codes: [], mapControls: ["CENTER", "ZOOM +", "ZOOM \u2212", "RULER", "GRID"] },
 ];
 
-// LEFT is always filled first (up to LEFT_CAPACITY), BOTTOM only gets
-// whatever overflows past that - RIGHT isn't used at all anymore (see
-// createTabButton/renderControlsPage: the top edge is now the page-tab
-// row). Capacities are fixed across all 3 pages so the bezel's shape
-// never changes when you switch pages - a page with fewer buttons than
-// capacity just leaves the remaining slots as visible, disabled
-// placeholders (see createDisabledBezelSlot) instead of the layout
-// shrinking around it.
+// LEFT column fills first (up to LEFT_CAPACITY, 5 slots), RIGHT column
+// gets whatever overflows past that (also up to 5) - approved bezel
+// layout (mfd-v2.html): 20 blank physical OSB caps with real MFD
+// numbering (1-5 top, 6-10 right, 11-15 bottom, 16-20 left). TOP row is
+// blank/inert on every page except MAP, where it becomes the 5 real map
+// controls (see mapControls above). BOTTOM row is always blank/inert -
+// not used for gamepad functions in this layout. Capacities are fixed
+// across all 4 pages so the bezel's shape never changes when you switch
+// pages - a page with fewer buttons than capacity just leaves the
+// remaining slots as visible, disabled placeholders.
 const LEFT_CAPACITY = 5;
-const BOTTOM_CAPACITY = Math.max(0, Math.max(...GAMEPAD_PAGES.map(p => p.codes.length)) - LEFT_CAPACITY);
+const RIGHT_CAPACITY = 5;
 
 function distributeToBezelEdges(codes) {
     return {
         left: codes.slice(0, LEFT_CAPACITY),
-        bottom: codes.slice(LEFT_CAPACITY, LEFT_CAPACITY + BOTTOM_CAPACITY),
+        right: codes.slice(LEFT_CAPACITY, LEFT_CAPACITY + RIGHT_CAPACITY),
     };
 }
 
@@ -296,30 +311,28 @@ function renameGamepadButton(code) {
 }
 
 async function pressGamepadButton(code) {
-    console.log(`[GAMEPAD] pressGamepadButton called: ${code}`);
-    // GAMEPAD_BASE is non-null when loaded via serve.py (phone). In
-    // extension context it's null — the extension talks to WT on 8111
-    // for telemetry but serve.py (gamepad) is on a different port.
-    // Use the telemetry host if it points at serve.py (non-8111 port),
-    // otherwise try common serve.py ports on localhost.
+    // Show result directly on the MFD screen so it's visible without
+    // dev tools (mobile Chrome doesn't support inspect).
+    const statusEl = document.getElementById("mfd-gamepad-debug");
+    function showStatus(text, color) {
+        if (statusEl) { statusEl.textContent = text; statusEl.style.color = color; }
+    }
+    showStatus(`${code}: sending...`, "#ffaa00");
+
     let base = GAMEPAD_BASE;
     if (!base) {
-        // Extension context: BASE points at WT (port 8111), not serve.py.
-        // Try the resolved telemetry host if user entered one with a
-        // non-8111 port (that's serve.py), otherwise assume localhost:8000.
-        if (BASE && !BASE.includes(":8111")) {
-            base = BASE;
-        } else {
-            base = "http://localhost:8000";
-        }
+        if (BASE && !BASE.includes(":8111")) base = BASE;
+        else base = "http://localhost:8000";
     }
     try {
         const url = `${base}/gamepad/press/${code}`;
-        console.log(`[GAMEPAD] fetching: ${url}`);
+        showStatus(`${code}: ${url}`, "#ffaa00");
         const res = await fetch(url);
         const text = await res.text();
+        showStatus(`${code}: ${res.ok ? "OK" : "FAIL"} — ${text}`, res.ok ? "#00ff66" : "#ff3366");
         if (!res.ok) console.warn(`[GAMEPAD] ${code}: ${text}`);
     } catch (err) {
+        showStatus(`${code}: FETCH FAILED — ${err.message}`, "#ff3366");
         console.warn(`[GAMEPAD] ${code}: fetch failed -`, err.message);
     }
 }
@@ -370,88 +383,191 @@ function toggleGearState() {
 // content; RADAR is the one part rebuilt visually, since that's the
 // only piece explicitly called out as changeable - the sweep now plots
 // real nearby contacts instead of 3 fixed fake ones.
-const controlsPageContent = document.getElementById("controls-page-content");
+// ---------- MFD bezel (v73 redesign) ----------
+// 20 real, blank physical OSB caps arranged in the approved real-MFD
+// numbering (1-5 top, 6-10 right, 11-15 bottom, 16-20 left), legends
+// drawn ON THE SCREEN next to each cap rather than on the button face
+// (matches real avionics hardware). 4 pages (FLIGHT/WEAPONS/RADAR/MAP),
+// paged via BOTH corner rockers (left rocker steps back, right rocker
+// forward) - not the bottom row, which stays blank/inert on every page.
+// Per-page distribution: LEFT column fills first (5 slots), overflow
+// goes to RIGHT (also 5 slots) - see distributeToBezelEdges above.
+// MAP is the one exception: it uses no gamepad codes at all: its TOP
+// row becomes 5 real map controls (CENTER/ZOOM+/ZOOM-/RULER/GRID) shown
+// in amber, and it blits the real tactical map (with all overlays) into
+// its own canvas instead of a gamepad screen.
+const rowTop = document.getElementById("rowTop");
+const rowBottom = document.getElementById("rowBottom");
+const colLeft = document.getElementById("colLeft");
+const colRight = document.getElementById("colRight");
+const lgTop = document.getElementById("lgTop");
+const lgRight = document.getElementById("lgRight");
+const lgBottom = document.getElementById("lgBottom");
+const lgLeft = document.getElementById("lgLeft");
+const pageTitleEl = document.getElementById("pageTitle");
+const pipsEl = document.getElementById("pips");
+
 let currentControlsPage = localStorage.getItem("wtmfd_controls_page") || GAMEPAD_PAGES[0].title;
+let weaponsPageBuilt = false; // see updateWeaponsPageLive() - lazily built to avoid a TDZ crash
 
-// Percent-of-edge position for slot `i` of `count`, evenly spaced with
-// margin on both ends (never flush against a corner) - same scheme the
-// original asset used for its 3 top-edge and 3 bottom-edge buttons.
-function edgeSlotPercent(i, count) {
-    return ((i + 1) / (count + 1)) * 100;
-}
-
-function createFunctionalButton(code, edge, index, count) {
-    const btn = document.createElement("button");
-    btn.className = `mfd-bezel-square mfd-bezel-square-${edge}`;
-    if (edge === "left") btn.style.top = `${edgeSlotPercent(index, count)}%`;
-    else btn.style.left = `${edgeSlotPercent(index, count)}%`;
-    btn.title = `Virtual gamepad button: ${code}. Double-click to rename.`;
-    btn.dataset.gamepadCode = code;
-
-    const isGear = code === "H1" && currentControlsPage === "FLIGHT";
-    if (isGear) {
-        const led = document.createElement("span");
-        led.className = "mfd-bezel-led";
-        btn.appendChild(led);
-        const labelSpan = document.createElement("span");
-        labelSpan.textContent = getGamepadButtonLabel(code);
-        btn.appendChild(labelSpan);
-        const setLed = (state, transitioning) => {
-            led.classList.toggle("mfd-bezel-led-transition", !!transitioning);
-            led.classList.toggle("mfd-bezel-led-down", state === "down" && !transitioning);
-            led.classList.toggle("mfd-bezel-led-up", state === "up" && !transitioning);
-        };
-        setLed(getGearLeverState(), false);
-        btn.addEventListener("click", () => {
-            const newState = toggleGearState();
-            setLed(newState, true);
-            pressGamepadButton("H1");
-            setTimeout(() => setLed(newState, false), 600);
-        });
-    } else {
-        btn.textContent = getGamepadButtonLabel(code);
-        btn.addEventListener("click", () => pressGamepadButton(code));
+// Builds the 5 physical caps for one fixed edge (real numbering handled
+// purely visually via CSS order - JS just needs 5 buttons per edge).
+function buildCaps(container, count) {
+    if (!container) return [];
+    container.innerHTML = "";
+    const caps = [];
+    for (let i = 0; i < count; i++) {
+        const b = document.createElement("button");
+        b.className = "osb";
+        container.appendChild(b);
+        caps.push(b);
     }
-    btn.addEventListener("dblclick", () => renameGamepadButton(code));
-    return btn;
+    return caps;
+}
+const capsTop = buildCaps(rowTop, 5);
+const capsRight = buildCaps(colRight, 5);
+const capsBottom = buildCaps(rowBottom, 5);
+const capsLeft = buildCaps(colLeft, 5);
+
+function fireCap(btn) {
+    btn.classList.add("fired");
+    setTimeout(() => btn.classList.remove("fired"), 130);
 }
 
-// Top-edge OSB that SWITCHES PAGES instead of pressing a gamepad button.
-function createTabButton(page, index, count) {
-    const btn = document.createElement("button");
-    btn.className = "mfd-bezel-square mfd-bezel-square-top mfd-bezel-tab-square";
-    btn.style.left = `${edgeSlotPercent(index, count)}%`;
-    btn.textContent = page.title;
-    btn.title = `Switch to ${page.title} page`;
-    btn.classList.toggle("active", page.title === currentControlsPage);
-    btn.addEventListener("click", () => {
-        currentControlsPage = page.title;
-        localStorage.setItem("wtmfd_controls_page", page.title);
-        renderControlsPage();
-    });
-    return btn;
+// Binds a physical cap to a real gamepad code - same press/rename logic
+// createGamepadButton already provides, just wired onto a plain <button
+// class="osb"> instead of the old blank-square-plus-legend wrapper.
+function bindGamepadCap(btn, code) {
+    btn.classList.remove("inert");
+    btn.disabled = false;
+    btn.title = `Virtual gamepad button: ${code}. Double-click legend to rename.`;
+    btn.onclick = () => { fireCap(btn); pressGamepadButton(code); };
 }
-
-// A visible-but-inert placeholder for an edge slot the current page
-// doesn't use (e.g. FLIGHT only fills 5 of the 8 left+bottom slots) -
-// keeps the bezel's shape constant across pages, per "leftover buttons
-// should still appear, just be non-functional."
-function createDisabledSlot(edge, index, count) {
-    const btn = document.createElement("button");
-    btn.className = `mfd-bezel-square mfd-bezel-square-${edge} mfd-bezel-square-disabled`;
-    if (edge === "left") btn.style.top = `${edgeSlotPercent(index, count)}%`;
-    else btn.style.left = `${edgeSlotPercent(index, count)}%`;
-    btn.textContent = "—";
+function bindMapControlCap(btn, action) {
+    btn.classList.remove("inert");
+    btn.disabled = false;
+    btn.title = action;
+    btn.onclick = () => { fireCap(btn); handleMfdMapControl(action); };
+}
+function makeCapInert(btn) {
+    btn.classList.add("inert");
     btn.disabled = true;
-    btn.tabIndex = -1;
-    btn.setAttribute("aria-hidden", "true");
-    return btn;
+    btn.title = "";
+    btn.onclick = null;
 }
+
+// One legend cell per edge slot - text only (real hardware silkscreens
+// the legend on the panel, not the button). ctrl=true renders it amber
+// (MAP page's real map controls) instead of the default phosphor green.
+function fillLegends(container, labels, opts = {}) {
+    if (!container) return;
+    container.innerHTML = "";
+    for (let i = 0; i < 5; i++) {
+        const d = document.createElement("div");
+        d.className = "legend" + (opts.ctrl ? " ctrl" : "");
+        const code = opts.codes && opts.codes[i];
+        d.textContent = labels[i] || "";
+        if (code) {
+            d.title = "Double-click to rename (display only)";
+            d.style.cursor = "text";
+            d.addEventListener("dblclick", () => {
+                renameGamepadButton(code);
+                renderControlsPage();
+            });
+        }
+        container.appendChild(d);
+    }
+}
+
+function renderControlsPage() {
+    if (!controlsPageOverlay) return;
+    const page = GAMEPAD_PAGES.find(p => p.title === currentControlsPage) || GAMEPAD_PAGES[0];
+    const pageIndex = GAMEPAD_PAGES.indexOf(page);
+    const edges = distributeToBezelEdges(page.codes);
+
+    // MAP has no gamepad codes, so the left/right legend gutters are
+    // always empty on it anyway - collapse them so the map canvas gets
+    // the full screen width instead of just the middle content column.
+    const screenEl = document.querySelector(".screen");
+    if (screenEl) screenEl.classList.toggle("map-full", page.title === "MAP");
+
+    capsLeft.forEach((b, i) => edges.left[i] ? bindGamepadCap(b, edges.left[i]) : makeCapInert(b));
+    capsRight.forEach((b, i) => edges.right[i] ? bindGamepadCap(b, edges.right[i]) : makeCapInert(b));
+    capsBottom.forEach(makeCapInert); // bottom row is always inert in this layout
+
+    if (page.mapControls) {
+        capsTop.forEach((b, i) => page.mapControls[i] ? bindMapControlCap(b, page.mapControls[i]) : makeCapInert(b));
+    } else {
+        capsTop.forEach(makeCapInert);
+    }
+
+    fillLegends(lgLeft, edges.left.map(getGamepadButtonLabel), { codes: edges.left });
+    fillLegends(lgRight, edges.right.map(getGamepadButtonLabel), { codes: edges.right });
+    fillLegends(lgBottom, []);
+    fillLegends(lgTop, page.mapControls || [], { ctrl: !!page.mapControls });
+
+    if (pageTitleEl) pageTitleEl.textContent = page.title;
+    if (pipsEl) {
+        pipsEl.innerHTML = "";
+        GAMEPAD_PAGES.forEach((p, i) => {
+            const s = document.createElement("span");
+            s.className = "pip" + (i === pageIndex ? " on" : "");
+            pipsEl.appendChild(s);
+        });
+    }
+
+    document.querySelectorAll(".pagestack .page").forEach((el, i) => {
+        el.classList.toggle("active", i === pageIndex);
+    });
+
+    // NOTE: WEAPONS page content (buildWeaponsPage) is intentionally NOT
+    // built here. renderControlsPage() can run synchronously during
+    // initial script load (its first call happens before `usingVehicleWeapons`
+    // further down the file has been initialized), so building the
+    // dropdown here would be a temporal-dead-zone crash if the person's
+    // last-viewed page (persisted in localStorage) was WEAPONS. Instead
+    // updateWeaponsPageLive() (called from the animation loop, safely
+    // after full script init) builds it lazily on first real use - see
+    // weaponsPageBuilt below.
+    weaponsPageBuilt = false;
+    // FLIGHT/RADAR/MAP content is filled every frame by
+    // updateControlsScreenLive() below, called from render().
+}
+
+function stepControlsPage(delta) {
+    const idx = GAMEPAD_PAGES.indexOf(GAMEPAD_PAGES.find(p => p.title === currentControlsPage) || GAMEPAD_PAGES[0]);
+    const next = GAMEPAD_PAGES[(idx + delta + GAMEPAD_PAGES.length) % GAMEPAD_PAGES.length];
+    currentControlsPage = next.title;
+    localStorage.setItem("wtmfd_controls_page", currentControlsPage);
+    renderControlsPage();
+}
+// Each whole rocker pages in ONE direction (not split into prev|next
+// halves): the LEFT rocker always steps back, the RIGHT rocker always
+// steps forward - matches a real hardware paging rocker.
+const rockLeft = document.getElementById("rockLeft");
+const rockRight = document.getElementById("rockRight");
+if (rockLeft) rockLeft.addEventListener("click", () => stepControlsPage(-1));
+if (rockRight) rockRight.addEventListener("click", () => stepControlsPage(1));
+const btnMfdSettings = document.getElementById("btnMfdSettings");
+const btnMfdFullMap = document.getElementById("btnMfdFullMap");
+if (btnMfdSettings) btnMfdSettings.addEventListener("click", () => openSettings(true));
+if (btnMfdFullMap) btnMfdFullMap.addEventListener("click", () => setViewMode("map"));
+
+// ---------- Gear LED state, still used by the FLIGHT page's GEAR cap ----------
+// bindGamepadCap above presses the raw code; the gear cap additionally
+// needs to flip the LED-style indicator - handled inline in
+// updateControlsScreenLive's FLIGHT branch below since the LED lives in
+// the PFD footer now, not next to the button itself (see mfd-v2.html).
 
 // ---------- Real telemetry readers for the MFD screen ----------
 // Same confirmed /state field names the old instrument panel used
-// ("H, m", "IAS, km/h", etc.) - kept minimal since the screen only needs
-// a handful of values, not a full gauge set.
+// ("H, m", "IAS, km/h", etc.). NOTE: roll/pitch/AoA field names below
+// (aviahorizon_roll/aviahorizon_pitch/aviahorizon_aoa) are the commonly
+// documented War Thunder indicator field names but have NOT been
+// confirmed against this project's own debug-logging (chk-debug-log /
+// logVehicleFieldsNow()) the way every other field here has - per
+// TESTING.md's own rule, verify these on a real aircraft before fully
+// trusting the ADI's bank/pitch ladder.
 function getMfdTelemetry() {
     const s = latestState || {};
     const ind = latestIndicators || {};
@@ -463,153 +579,199 @@ function getMfdTelemetry() {
         flapsPct: s["flaps, %"] ?? 0,
         airbrakePct: s["airbrake, %"] ?? 0,
         vy: s["Vy, m/s"] ?? 0,
+        // Confirmed via live testing: both fields exist under these names,
+        // but WT reports them inverted from what the ladder needs (rolling
+        // right reported as negative, nose-up reported as negative) -
+        // flipped here at the source so every consumer gets the corrected
+        // sign, rather than negating in more than one place downstream.
+        rollDeg: -(Number(ind["aviahorizon_roll"]) || 0),
+        pitchDeg: -(Number(ind["aviahorizon_pitch"]) || 0),
         valid: isConnected && s["valid"] !== false,
     };
 }
 
-function buildScreen(page) {
-    const screen = document.createElement("div");
-    screen.className = "mfd-screen";
+// ---------- FLIGHT page: glass PFD ----------
+const roseEl = document.getElementById("rose");
+if (roseEl) {
+    let s = "";
+    for (let d = 0; d < 720; d += 10) {
+        const wrapped = d % 360;
+        const card = { 0: "N", 90: "E", 180: "S", 270: "W" }[wrapped];
+        s += `<span class="${card ? "card" : ""}">${card || String(wrapped).padStart(3, "0")}</span>`;
+    }
+    roseEl.innerHTML = s;
+}
+function updateFlightPage(t) {
+    const skyGnd = document.getElementById("skyGnd");
+    if (skyGnd) skyGnd.style.transform = `rotate(${-t.rollDeg}deg) translateY(${t.pitchDeg * 1.1}%)`;
 
-    const header = document.createElement("div");
-    header.className = "mfd-header";
-    header.innerHTML = `
-        <div>SPD: <span id="mfd-tele-spd">-</span> KM/H</div>
-        <div>ALT: <span id="mfd-tele-alt">-</span> M</div>
-        <div>HDG: <span id="mfd-tele-hdg">-</span>&deg;</div>`;
-    screen.appendChild(header);
+    const vHdg = document.getElementById("vHdg");
+    if (vHdg) vHdg.textContent = t.valid ? String(Math.round(t.headingDeg)).padStart(3, "0") : "---";
+    if (roseEl) roseEl.style.transform = `translateX(calc(50% - ${(t.headingDeg / 10) * 34}px))`;
 
-    if (page.title === "RADAR") {
-        const view = document.createElement("div");
-        view.className = "mfd-view active";
-        const canvas = document.createElement("canvas");
-        canvas.id = "mfd-radar-canvas";
-        view.appendChild(canvas);
-        screen.appendChild(view);
-    } else if (page.title === "WEAPONS") {
-        const view = document.createElement("div");
-        view.className = "mfd-view active";
-        view.innerHTML = `
-            <div style="font-size:14px; font-weight:bold; margin-top:36px;">STORES MANAGEMENT</div>
-            <div class="weapon-grid" id="mfd-weapon-grid"></div>`;
-        screen.appendChild(view);
-    } else {
-        const view = document.createElement("div");
-        view.className = "mfd-view active";
-        view.innerHTML = `
-            <div style="font-size:14px; font-weight:bold; margin-top:36px;">FLIGHT STATUS</div>
-            <div class="controls-list" id="mfd-flight-list"></div>`;
-        screen.appendChild(view);
+    const vIas = document.getElementById("vIas");
+    if (vIas) vIas.textContent = t.valid ? Math.round(t.iasKmh) : "-";
+    const vAlt = document.getElementById("vAlt");
+    if (vAlt) vAlt.textContent = t.valid ? Math.round(t.altitude).toLocaleString() : "-";
+    // Decorative tick labels flanking the current value, same spacing
+    // convention as the approved mfd-v2.html mockup (+-15/+-30 IAS,
+    // +-320/+-720 ALT) - not independently live-scrolling ticks, just
+    // framing for the current boxed value.
+    const iasCur = t.valid ? Math.round(t.iasKmh) : 0;
+    const altCur = t.valid ? Math.round(t.altitude) : 0;
+    ["iasT1", "iasT2", "iasT3", "iasT4"].forEach((id, i) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const offsets = [30, 15, -15, -30];
+        el.textContent = t.valid ? Math.max(0, iasCur + offsets[i]) : "-";
+    });
+    ["altT1", "altT2", "altT3", "altT4"].forEach((id, i) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const offsets = [720, 320, -320, -720];
+        el.textContent = t.valid ? Math.max(0, altCur + offsets[i]).toLocaleString() : "-";
+    });
+
+    const vGear = document.getElementById("vGear");
+    if (vGear) vGear.textContent = t.valid ? (t.gearPct > 50 ? "DOWN" : "UP") : "-";
+    const vFlap = document.getElementById("vFlap");
+    if (vFlap) vFlap.textContent = t.valid ? `${Math.round(t.flapsPct)}%` : "-";
+    const vVs = document.getElementById("vVs");
+    if (vVs) vVs.textContent = t.valid ? `${t.vy >= 0 ? "+" : ""}${t.vy.toFixed(1)}` : "-";
+}
+
+// ---------- WEAPONS page: aircraft name + BR, store dropdown, ballistics ----------
+// Reuses the exact same weapon-selection state the map view already
+// maintains (selVehicle/selWeapon/usingVehicleWeapons/getCurrentWeaponProfile)
+// rather than a separate store list - whatever's selected in the sidebar's
+// WEAPON PROFILE section is what shows here too.
+function buildWeaponsPage() {
+    const planeName = document.getElementById("planeName");
+    const planeBr = document.getElementById("planeBr");
+    if (planeName) planeName.textContent = selVehicle?.value || "NO VEHICLE SELECTED";
+    if (planeBr) planeBr.textContent = "";
+
+    const wpnDd = document.getElementById("wpnDd");
+    const wpnFace = document.getElementById("wpnFace");
+    if (wpnFace && wpnDd && !wpnFace.dataset.bound) {
+        wpnFace.dataset.bound = "1";
+        wpnFace.addEventListener("click", (e) => { e.stopPropagation(); wpnDd.classList.toggle("open"); });
+        wpnFace.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" || e.key === " ") { e.preventDefault(); wpnDd.classList.toggle("open"); }
+        });
+        document.addEventListener("click", () => wpnDd.classList.remove("open"));
     }
 
-    return screen;
-}
-
-// ---------- Live per-frame update (header + whichever view is showing)
-// - called from render() below while viewMode === "controls", separate
-// from renderControlsPage() so switching pages/tabs doesn't fight with
-// live telemetry redrawing every frame. ----------
-function updateControlsScreenLive() {
-    const t = getMfdTelemetry();
-    const elSpd = document.getElementById("mfd-tele-spd");
-    const elAlt = document.getElementById("mfd-tele-alt");
-    const elHdg = document.getElementById("mfd-tele-hdg");
-    if (elSpd) elSpd.textContent = t.valid ? Math.round(t.iasKmh) : "-";
-    if (elAlt) elAlt.textContent = t.valid ? Math.round(t.altitude).toLocaleString() : "-";
-    if (elHdg) elHdg.textContent = t.valid ? Math.round(t.headingDeg).toString().padStart(3, "0") : "-";
-
-    if (currentControlsPage === "RADAR") {
-        drawControlsRadar(t);
-    } else if (currentControlsPage === "WEAPONS") {
-        updateControlsWeaponGrid(t);
-    } else if (currentControlsPage === "FLIGHT") {
-        updateControlsFlightList(t);
+    const wpnList = document.getElementById("wpnList");
+    const wpnName = document.getElementById("wpnName");
+    if (wpnList && selWeapon) {
+        wpnList.innerHTML = "";
+        Array.from(selWeapon.options).forEach(opt => {
+            if (!opt.value) return;
+            const d = document.createElement("div");
+            d.className = "dd-item" + (opt.value === selWeapon.value ? " sel" : "");
+            d.setAttribute("role", "option");
+            const label = usingVehicleWeapons ? formatDbWeaponLabel(opt.value) : opt.value;
+            d.innerHTML = `<span>${label}</span>`;
+            d.onclick = (e) => {
+                e.stopPropagation();
+                selWeapon.value = opt.value;
+                selWeapon.dispatchEvent(new Event("change"));
+                buildWeaponsPage();
+                if (wpnDd) wpnDd.classList.remove("open");
+            };
+            wpnList.appendChild(d);
+        });
+        if (wpnName) {
+            wpnName.textContent = selWeapon.value
+                ? (usingVehicleWeapons ? formatDbWeaponLabel(selWeapon.value) : selWeapon.value)
+                : "NO WEAPON SELECTED";
+        }
     }
 }
-
-function updateControlsWeaponGrid(t) {
-    const grid = document.getElementById("mfd-weapon-grid");
-    if (!grid) return;
-    const vehicleName = selVehicle?.value || "NO VEHICLE SELECTED";
-    const weaponName = selWeapon?.value || "-";
-    const rangeText = elRangeInfo?.textContent || "-";
-    const ready = t.valid;
-    grid.innerHTML = `
-        <div class="weapon-card selected">
-            <div class="weapon-title">${vehicleName}</div>
-            <div class="status-tag ${ready ? "status-ready" : ""}">STATUS: ${ready ? "TELEMETRY LIVE" : "NO TELEMETRY"}</div>
-        </div>
-        <div class="weapon-card">
-            <div class="weapon-title">${weaponName}</div>
-            <div>${rangeText}</div>
-        </div>`;
+function updateWeaponsPageLive() {
+    if (!weaponsPageBuilt) {
+        buildWeaponsPage();
+        weaponsPageBuilt = true;
+    }
+    const ball = document.getElementById("ballistics");
+    if (!ball) return;
+    const profile = getCurrentWeaponProfile();
+    const rangeMeters = computeWeaponRangeMeters(profile);
+    if (!profile) {
+        ball.innerHTML = `<div class="full"><span>STATUS</span><span class="v">NO WEAPON SELECTED</span></div>`;
+        return;
+    }
+    const rangeText = rangeMeters != null ? `${(rangeMeters / 1000).toFixed(2)} km` : "-";
+    ball.innerHTML =
+        `<div class="k">TYPE</div><div class="v">${weaponTypeLabel(profile.type)}</div>` +
+        (profile.mass != null ? `<div class="k">MASS</div><div class="v">${profile.mass} kg</div>` : "") +
+        (profile.dragCoeff != null ? `<div class="k">Cd</div><div class="v">${profile.dragCoeff}</div>` : "") +
+        (profile.glideRatio ? `<div class="k">GLIDE</div><div class="v">${profile.glideRatio}:1</div>` : "") +
+        (profile.maxG != null ? `<div class="k">MAX G</div><div class="v">${profile.maxG}</div>` : "") +
+        `<div class="full"><span>EFFECTIVE RNG</span><span class="v">${rangeText}</span></div>`;
 }
 
-function updateControlsFlightList(t) {
-    const list = document.getElementById("mfd-flight-list");
-    if (!list) return;
-    const gearDown = t.gearPct > 50;
-    list.innerHTML = `
-        <div class="control-row"><span>GEAR</span><span>${t.valid ? (gearDown ? "DOWN" : "UP") + ` (${Math.round(t.gearPct)}%)` : "-"}</span></div>
-        <div class="control-row"><span>FLAPS</span><span>${t.valid ? Math.round(t.flapsPct) + "%" : "-"}</span></div>
-        <div class="control-row"><span>AIRBRAKE</span><span>${t.valid ? Math.round(t.airbrakePct) + "%" : "-"}</span></div>
-        <div class="control-row"><span>VERTICAL SPEED</span><span>${t.valid ? t.vy.toFixed(1) + " M/S" : "-"}</span></div>`;
-}
+// ---------- RADAR page: rectangular B-scan (bearing x range) ----------
+// Bearing across the X axis (-90..+90 deg relative to nose, forward
+// hemisphere only), range down the Y axis - same real contact data and
+// bearing math the old circular scope used (relBearingRad: 0 = dead
+// ahead), just projected onto a B-scan instead of a PPI circle.
+let controlsRadarSweepX = 0.5;
+let controlsRadarSweepDir = 1;
+const CONTROLS_RADAR_RANGE_M = 15000;
+const CONTROLS_RADAR_HALF_FOV_RAD = (58 * Math.PI) / 180;
 
-// Sweeping radar view - the one part of the uploaded asset explicitly
-// meant to change visually. Keeps the rotating sweep + range rings, but
-// every contact plotted is a REAL nearby map object, using the exact
-// same bearing math as the check-six indicator above (relBearingRad: 0 =
-// dead ahead/top, +-PI = dead astern/bottom) so both stay consistent.
-let controlsRadarSweepAngle = 0;
-const CONTROLS_RADAR_RANGE_M = 15000; // 15km scope range - not user-configurable yet
-
-function drawControlsRadar(t) {
+function drawControlsRadar() {
     const canvas = document.getElementById("mfd-radar-canvas");
-    if (!canvas) return;
+    if (!canvas || currentControlsPage !== "RADAR") return;
     const parent = canvas.parentElement;
-    if (canvas.width !== parent.clientWidth) canvas.width = parent.clientWidth;
-    if (canvas.height !== parent.clientHeight) canvas.height = parent.clientHeight;
+    const w = parent.clientWidth, h = parent.clientHeight;
+    if (canvas.width !== w) canvas.width = w;
+    if (canvas.height !== h) canvas.height = h;
     const ctx2 = canvas.getContext("2d");
-    ctx2.clearRect(0, 0, canvas.width, canvas.height);
+    ctx2.clearRect(0, 0, w, h);
 
-    const cX = canvas.width / 2;
-    const cY = canvas.height / 2;
-    const maxR = Math.min(cX, cY) - 20;
-    if (maxR <= 0) return;
+    const pad = 6;
+    const scanW = w - pad * 2, scanH = h - pad * 2;
+
+    ctx2.strokeStyle = "#1c6b42";
+    ctx2.lineWidth = 0.7;
+    ctx2.strokeRect(pad, pad, scanW, scanH);
+    ctx2.beginPath();
+    ctx2.moveTo(w / 2, pad); ctx2.lineTo(w / 2, h - pad);
+    for (let i = 1; i <= 3; i++) {
+        const y = pad + (scanH / 4) * i;
+        ctx2.moveTo(pad, y); ctx2.lineTo(w - pad, y);
+    }
+    ctx2.stroke();
+    ctx2.fillStyle = "#1c6b42";
+    ctx2.font = "7px monospace";
+    ctx2.textAlign = "left";
+    // Labels at horizontal gridlines - top=far, bottom=close, so the label
+    // at tick i from the top represents range (maxRange * i/4).
+    for (let i = 1; i <= 3; i++) {
+        const rangeKm = (CONTROLS_RADAR_RANGE_M / 1000) * (i / 4);
+        ctx2.fillText(rangeKm.toFixed(0) + "km", pad + 2, pad + (scanH / 4) * i - 2);
+    }
 
     const playerObj = findPlayerObject();
     if (!isConnected || !playerObj) {
         ctx2.fillStyle = "rgba(255, 170, 0, 0.6)";
-        ctx2.font = "12px monospace";
+        ctx2.font = "10px monospace";
         ctx2.textAlign = "center";
-        ctx2.fillText("NO TELEMETRY", cX, cY);
+        ctx2.fillText("NO TELEMETRY", w / 2, h / 2);
         return;
     }
 
-    // Range rings + crosshairs
-    ctx2.strokeStyle = "rgba(0, 255, 102, 0.18)";
-    ctx2.lineWidth = 1;
-    for (let i = 1; i <= 3; i++) {
-        ctx2.beginPath();
-        ctx2.arc(cX, cY, (maxR / 3) * i, 0, Math.PI * 2);
-        ctx2.stroke();
-    }
-    ctx2.beginPath();
-    ctx2.moveTo(cX - maxR, cY); ctx2.lineTo(cX + maxR, cY);
-    ctx2.moveTo(cX, cY - maxR); ctx2.lineTo(cX, cY + maxR);
-    ctx2.stroke();
+    // Sweep bar, oscillating left-to-right across the scan width.
+    controlsRadarSweepX += 0.012 * controlsRadarSweepDir;
+    if (controlsRadarSweepX > 1) { controlsRadarSweepX = 1; controlsRadarSweepDir = -1; }
+    if (controlsRadarSweepX < 0) { controlsRadarSweepX = 0; controlsRadarSweepDir = 1; }
+    const sweepPx = pad + scanW * controlsRadarSweepX;
+    ctx2.fillStyle = "rgba(51, 255, 153, 0.35)";
+    ctx2.fillRect(sweepPx - 1, pad, 2, scanH);
 
-    // Sweep line
-    controlsRadarSweepAngle += 0.02;
-    if (controlsRadarSweepAngle > Math.PI * 2) controlsRadarSweepAngle = 0;
-    ctx2.beginPath();
-    ctx2.moveTo(cX, cY);
-    ctx2.lineTo(cX + Math.cos(controlsRadarSweepAngle) * maxR, cY + Math.sin(controlsRadarSweepAngle) * maxR);
-    ctx2.strokeStyle = "rgba(0, 255, 102, 0.8)";
-    ctx2.stroke();
-
-    // Real contacts, nose-up (same convention as the check-six indicator).
     if (typeof playerObj.dx === "number" && typeof playerObj.dy === "number") {
         const playerHeadingRad = Math.atan2(playerObj.dy, playerObj.dx);
         const mapSpanMeters = currentMapSpanMeters || getMapSpanXMeters();
@@ -625,63 +787,90 @@ function drawControlsRadar(t) {
             let relBearingRad = bearingRad - playerHeadingRad;
             while (relBearingRad > Math.PI) relBearingRad -= 2 * Math.PI;
             while (relBearingRad < -Math.PI) relBearingRad += 2 * Math.PI;
+            if (Math.abs(relBearingRad) > CONTROLS_RADAR_HALF_FOV_RAD) continue; // forward hemisphere only
 
-            const r = (distMeters / CONTROLS_RADAR_RANGE_M) * maxR;
-            const tx = cX + r * Math.sin(relBearingRad);
-            const ty = cY - r * Math.cos(relBearingRad);
+            const bx = pad + scanW * (0.5 + relBearingRad / (2 * CONTROLS_RADAR_HALF_FOV_RAD));
+            // B-scan convention: close range at BOTTOM, distance increases upward.
+            // (distMeters/range → 0 = close → by near bottom; 1 = far → by near top)
+            const by = pad + scanH * (1 - distMeters / CONTROLS_RADAR_RANGE_M);
 
             const team = classifyTeam(obj);
             ctx2.strokeStyle = team === "enemy" ? "#ff3366" : team === "friendly" ? "#00ff66" : "#8b9bb4";
-            ctx2.strokeRect(tx - 5, ty - 5, 10, 10);
+            ctx2.lineWidth = 1.4;
+            ctx2.strokeRect(bx - 5, by - 5, 10, 10);
             ctx2.fillStyle = ctx2.strokeStyle;
-            ctx2.font = "9px monospace";
+            ctx2.font = "8px monospace";
             ctx2.textAlign = "left";
-            ctx2.fillText(obj.icon || "?", tx + 7, ty + 3);
+            ctx2.fillText(`${obj.icon || "?"} ${(distMeters / 1000).toFixed(1)}K`, bx + 7, by + 3);
         }
     }
-
-    // Player marker, dead center, nose pointing up.
-    ctx2.fillStyle = "#00ff66";
-    ctx2.beginPath();
-    ctx2.moveTo(cX, cY - 6);
-    ctx2.lineTo(cX - 4, cY + 5);
-    ctx2.lineTo(cX + 4, cY + 5);
-    ctx2.closePath();
-    ctx2.fill();
 }
 
-function renderControlsPage() {
-    if (!controlsPageContent) return;
-    controlsPageContent.innerHTML = "";
-    const page = GAMEPAD_PAGES.find(p => p.title === currentControlsPage) || GAMEPAD_PAGES[0];
-    const edges = distributeToBezelEdges(page.codes);
-
-    const frame = document.createElement("div");
-    frame.className = "mfd-bezel-frame";
-
-    GAMEPAD_PAGES.forEach((p, i) => frame.appendChild(createTabButton(p, i, GAMEPAD_PAGES.length)));
-
-    for (let i = 0; i < LEFT_CAPACITY; i++) {
-        frame.appendChild(edges.left[i]
-            ? createFunctionalButton(edges.left[i], "left", i, LEFT_CAPACITY)
-            : createDisabledSlot("left", i, LEFT_CAPACITY));
+// ---------- MAP page: blits the real tactical map ----------
+// The main #map-canvas is drawn fresh every frame regardless of viewMode
+// (see drawTacticalMapToMainCanvas() near render() below), even while
+// hidden behind the controls-page-overlay - so this just copies that
+// already-fully-rendered frame (map image + grid + airfields + every
+// object/overlay) into the bezel's own small canvas via drawImage,
+// rather than needing a second, parallel copy of the whole rendering
+// path targeting a different canvas.
+function updateMapPageLive() {
+    const mfdCanvas = document.getElementById("mfd-map-canvas");
+    if (!mfdCanvas || currentControlsPage !== "MAP") return;
+    const parent = mfdCanvas.parentElement;
+    const w = parent.clientWidth, h = parent.clientHeight;
+    if (mfdCanvas.width !== w) mfdCanvas.width = w;
+    if (mfdCanvas.height !== h) mfdCanvas.height = h;
+    const mfdCtx = mfdCanvas.getContext("2d");
+    mfdCtx.clearRect(0, 0, mfdCanvas.width, mfdCanvas.height);
+    mfdCtx.fillStyle = "#080c14";
+    mfdCtx.fillRect(0, 0, mfdCanvas.width, mfdCanvas.height);
+    // The main canvas (wide, fills the whole map-container) and this
+    // bezel canvas (closer to square) rarely share an aspect ratio.
+    // "Cover" fit: scale up uniformly (no distortion) until the source
+    // fully fills the destination, letting the canvas's own clipping
+    // crop whatever spills past the edges - fills the screen instead of
+    // leaving letterbox bars, at the cost of losing a bit of the map's
+    // far left/right edges.
+    const srcW = canvas.width, srcH = canvas.height;
+    if (srcW > 0 && srcH > 0) {
+        const fitScale = Math.max(mfdCanvas.width / srcW, mfdCanvas.height / srcH);
+        const destW = srcW * fitScale, destH = srcH * fitScale;
+        const destX = (mfdCanvas.width - destW) / 2, destY = (mfdCanvas.height - destH) / 2;
+        mfdCtx.drawImage(canvas, 0, 0, srcW, srcH, destX, destY, destW, destH);
     }
-    for (let i = 0; i < BOTTOM_CAPACITY; i++) {
-        frame.appendChild(edges.bottom[i]
-            ? createFunctionalButton(edges.bottom[i], "bottom", i, BOTTOM_CAPACITY)
-            : createDisabledSlot("bottom", i, BOTTOM_CAPACITY));
+    const scaleEl = document.getElementById("mapScale");
+    if (scaleEl) scaleEl.textContent = `ZOOM ${zoom.toFixed(2)}x`;
+}
+function handleMfdMapControl(action) {
+    if (action === "CENTER") {
+        isJetCentered = true;
+        updateFollowButtonStyle();
+        centerOnPlayer();
+    } else if (action === "ZOOM +") {
+        zoom = Math.min(zoom * 1.3, 12.0);
+    } else if (action === "ZOOM \u2212") {
+        zoom = Math.max(zoom / 1.3, 0.5);
+    } else if (action === "RULER") {
+        activeMeasurement = null;
+        measureStartWorld = null;
+        measureCurrentWorld = null;
+    } else if (action === "GRID") {
+        if (chkGridOverlay) {
+            chkGridOverlay.checked = !chkGridOverlay.checked;
+            persistCheckbox("chk-grid-overlay");
+        }
     }
-    // No right edge - every functional button lives on the left,
-    // overflowing to the bottom (see LEFT_CAPACITY/BOTTOM_CAPACITY).
+}
 
-    frame.appendChild(buildScreen(page));
-    controlsPageContent.appendChild(frame);
-    // updateControlsScreenLive is called per-frame from render() once the
-    // poll loops are running - do NOT call it here during the initial
-    // renderControlsPage() at script load, since isConnected/latestMapObj/
-    // etc. aren't declared yet (they're `let` further down the file, so
-    // referencing them from here would be a temporal-dead-zone crash that
-    // kills the entire script before render() even gets defined).
+// ---------- Live per-frame update (called from render() below while
+// viewMode === "controls") ----------
+function updateControlsScreenLive() {
+    const t = getMfdTelemetry();
+    if (currentControlsPage === "FLIGHT") updateFlightPage(t);
+    else if (currentControlsPage === "WEAPONS") updateWeaponsPageLive();
+    else if (currentControlsPage === "RADAR") drawControlsRadar();
+    else if (currentControlsPage === "MAP") updateMapPageLive();
 }
 
 renderControlsPage();
@@ -704,7 +893,7 @@ async function refreshBlkStatus() {
         const res = await fetch(`${GAMEPAD_BASE || BASE}/blk/status`);
         const data = await res.json();
         const file = data.source_file;
-        setBlkStatus(file ? `Ready — found ${file}` : "No .blk in controls/ folder yet.", !!file);
+        setBlkStatus(file ? `Ready — found ${file}` : `No .blk found. Drop one into: ${data.controls_dir}`, !!file);
         if (blkTargetIdGrid) {
             blkTargetIdGrid.innerHTML = "";
             for (const code of data.button_codes) {
@@ -1835,98 +2024,20 @@ selCountry.addEventListener("change", () => {
 selWeapon.addEventListener("change", () => {
     localStorage.setItem("wtmfd_weapon", selWeapon.value);
     updateWeaponInfo();
+    weaponsPageBuilt = false; // rebuild the MFD's WEAPONS page dropdown/selection next frame
 });
 if (chkDynamicRange) chkDynamicRange.addEventListener("change", updateWeaponInfo);
 populateWeaponDropdown();
 
-// ---------- Layout mode (Desktop / Mobile, live-toggleable) ----------
-// "sidebar" = Desktop - classic persistent sidebar (original layout).
-// "toolbar" = Mobile  - ONLY the essentials (vehicle select, weapon
-//             select, CENTER ON AIRCRAFT, FOLLOW JET, connection status,
-//             AIR THREAT, fullscreen button) relocate into a slim sticky
-//             bar across the top of the map. Everything else (map
-//             control buttons, full telemetry, AA threat/nearest target,
-//             tactical overlays, debug & calibration) stays exactly
-//             where it already lives in #sidebar, which becomes the
-//             hamburger-opened drawer.
-//
-// Relocation moves the REAL DOM elements (appendChild doesn't clone -
-// same node, same id, same event listeners, just a new parent), so every
-// bit of JS wiring elsewhere in this file keeps working unchanged
-// regardless of which layout is currently active. Each element's original
-// {parent, nextSibling} is captured once up front so "put it back" is
-// exact, not a guess at where it used to be.
-function captureOriginalPosition(el) {
-    return el ? { el, parent: el.parentNode, nextSibling: el.nextSibling } : null;
-}
-function restoreOriginalPosition(pos) {
-    if (!pos) return;
-    pos.parent.insertBefore(pos.el, pos.nextSibling);
-}
-
-const originalPositions = {
-    selVehicle: captureOriginalPosition(selVehicle),
-    selWeapon: captureOriginalPosition(selWeapon),
-    primaryStatusRow: captureOriginalPosition(primaryStatusRow),
-    airThreatRow: captureOriginalPosition(airThreatRow),
-    btnCenterPlayer: captureOriginalPosition(btnCenterPlayer),
-    btnToggleFollow: captureOriginalPosition(btnToggleFollow)
-};
-
-const LAYOUT_MODE_LABELS = { sidebar: "🖥️ DESKTOP", toolbar: "📱 MOBILE" };
-
-function applyLayoutMode(mode) {
-    document.body.classList.remove("compact-mode", "toolbar-mode", "sidebar-open");
-
-    if (mode === "toolbar") {
-        document.body.classList.add("compact-mode", "toolbar-mode");
-        // Don't yank the drawer away the instant a mode is picked - open it
-        // once so whatever the person just clicked stays visibly reachable.
-        document.body.classList.add("sidebar-open");
-
-        // Dropdown on the left, buttons centered, dropdown+AIR THREAT+
-        // status+fullscreen on the right - btn-fullscreen already lives
-        // in #toolbar-right in the HTML. AIR THREAT is a normal flex
-        // child here now (not a separately-positioned floating badge),
-        // so its position is always correct relative to its actual
-        // siblings - no pixel math to get wrong.
-        if (toolbarLeft && selVehicle) toolbarLeft.appendChild(selVehicle);
-        if (toolbarCenter && btnCenterPlayer) toolbarCenter.appendChild(btnCenterPlayer);
-        if (toolbarCenter && btnToggleFollow) toolbarCenter.appendChild(btnToggleFollow);
-        if (toolbarRight && selWeapon) toolbarRight.insertBefore(selWeapon, btnFullscreen);
-        if (toolbarRight && airThreatRow) toolbarRight.insertBefore(airThreatRow, btnFullscreen);
-        if (toolbarRight && primaryStatusRow) toolbarRight.insertBefore(primaryStatusRow, btnFullscreen);
-    } else {
-        // Desktop: put everything back exactly where it started.
-        restoreOriginalPosition(originalPositions.selVehicle);
-        restoreOriginalPosition(originalPositions.selWeapon);
-        restoreOriginalPosition(originalPositions.primaryStatusRow);
-        restoreOriginalPosition(originalPositions.airThreatRow);
-        restoreOriginalPosition(originalPositions.btnCenterPlayer);
-        restoreOriginalPosition(originalPositions.btnToggleFollow);
-    }
-
-    if (btnLayoutToggle) btnLayoutToggle.textContent = LAYOUT_MODE_LABELS[mode];
-
-    resizeCanvas();
-}
-
-const savedLayoutMode = localStorage.getItem("wtmfd_layout") || "sidebar";
-// Auto-detect phones: if the screen is narrow enough that the desktop
-// sidebar would be unusable, force mobile layout regardless of what's
-// saved — the person can still toggle back if they want, but the default
-// experience on a phone should just work without manual switching.
-const effectiveLayout = (window.innerWidth <= 600 && savedLayoutMode === "sidebar") ? "toolbar" : savedLayoutMode;
-applyLayoutMode(effectiveLayout);
-
-if (btnLayoutToggle) {
-    btnLayoutToggle.addEventListener("click", () => {
-        const currentMode = localStorage.getItem("wtmfd_layout") || "sidebar";
-        const nextMode = currentMode === "sidebar" ? "toolbar" : "sidebar";
-        localStorage.setItem("wtmfd_layout", nextMode);
-        applyLayoutMode(nextMode);
-    });
-}
+// ---------- Layout ----------
+// v73 retires the old Desktop-sidebar/Mobile-toolbar dual layout in favor
+// of ONE unified layout at every screen size (approved map-mockup.html
+// design): a slim top toolbar always visible, and the settings drawer
+// (#sidebar) always an off-canvas overlay opened via the gear icon (see
+// openSettings() near the top of this file). Nothing to toggle here
+// anymore - resizeCanvas() still needs calling once up front since the
+// old applyLayoutMode() used to do that as part of its setup.
+resizeCanvas();
 
 // ---------- Accessibility: Large Text Mode ----------
 // Global flag other functions can check (see largeTextCanvasFont below) -
@@ -1998,12 +2109,6 @@ if (btnFullscreen) {
         } catch (err) {
             console.error("[WT MFD] Fullscreen toggle failed:", err);
         }
-    });
-}
-
-if (btnToggleDrawer) {
-    btnToggleDrawer.addEventListener("click", () => {
-        document.body.classList.toggle("sidebar-open");
     });
 }
 
@@ -2846,6 +2951,19 @@ function updateTelemetryUI() {
     if (inputCalibAltitude && document.activeElement !== inputCalibAltitude) {
         inputCalibAltitude.value = Math.round(alt);
     }
+
+    // Slim live readout in the top toolbar (separate elements from the
+    // drawer's own SPD/ALT rows above - see tb-val-spd/alt/hdg in
+    // mfd.html - so relocating/restyling one never fights the other).
+    const tbSpd = document.getElementById("tb-val-spd");
+    const tbAlt = document.getElementById("tb-val-alt");
+    const tbHdg = document.getElementById("tb-val-hdg");
+    if (tbSpd) tbSpd.textContent = `${Math.round(speed)} km/h`;
+    if (tbAlt) tbAlt.textContent = `${Math.round(alt)} m`;
+    if (tbHdg) {
+        const headingDeg = Number(latestIndicators?.["compass"] ?? latestIndicators?.["compass1"] ?? latestIndicators?.["heading"]) || 0;
+        tbHdg.textContent = `${String(Math.round(headingDeg)).padStart(3, "0")}\u00B0`;
+    }
 }
 
 // ---------- Safety / engagement status ----------
@@ -3380,221 +3498,80 @@ function renderGrid() {
     ctx.restore();
 }
 
-// ---------- Weapon MFD (alternate view) ----------
-// A dedicated weapons-page display instead of the tactical map - a
-// heading-up scope centered on the aircraft, scaled to the CURRENT
-// weapon's computed range rather than the map's real-world size. Same
-// underlying data (computeWeaponRangeMeters, findPlayerObject,
-// classifyTeam, the calibrated span for real target distances) as the
-// map view - this is a different way of looking at the same numbers, not
-// a separate calculation path.
-function renderWeaponMFD() {
-    ctx.fillStyle = "#05070a";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    const cx = canvas.width / 2;
-    const cy = canvas.height / 2;
-    const scopeRadius = Math.min(canvas.width, canvas.height) * 0.40;
-
-    const profile = getCurrentWeaponProfile();
-    const rangeMeters = computeWeaponRangeMeters(profile);
-    const player = findPlayerObject();
-
-    if (!rangeMeters || rangeMeters <= 0) {
-        ctx.fillStyle = "#ffcc00";
-        ctx.font = "bold 13px monospace";
-        ctx.textAlign = "center";
-        ctx.fillText("NO WEAPON RANGE AVAILABLE", cx, cy);
-        return;
+// ---------- Check-six / 360 air threat indicator (v73: floating SVG
+// badge over the map, not canvas-drawn) ----------
+// The old standalone Weapon MFD scope view (renderWeaponMFD) was retired
+// in the v73 merge - the new MFD's WEAPONS page (dropdown + ballistics)
+// and RADAR page (B-scan) cover what it used to show, per user
+// confirmation. This badge replaces the old canvas-drawn corner ring
+// with the approved map-mockup.html design: a real SVG element
+// (#check-six-badge) that counter-rotates against heading so true north
+// stays north, with a threat blip at the real relative bearing - same
+// underlying latestAirThreats data updateAirThreatUI() already computes.
+const c6Ring = document.getElementById("c6-ring");
+const c6HdgEl = document.getElementById("c6-hdg");
+const c6BlipEl = document.getElementById("c6-blip");
+const c6TicksEl = document.getElementById("c6-ticks");
+if (c6TicksEl) {
+    let s = "";
+    for (let d = 0; d < 360; d += 10) {
+        const maj = d % 30 === 0, r1 = maj ? 41 : 44, r2 = 48, a = (d - 90) * Math.PI / 180;
+        s += `<line x1="${(60 + Math.cos(a) * r1).toFixed(1)}" y1="${(60 + Math.sin(a) * r1).toFixed(1)}" ` +
+             `x2="${(60 + Math.cos(a) * r2).toFixed(1)}" y2="${(60 + Math.sin(a) * r2).toFixed(1)}" ` +
+             `class="c6-tick${maj ? " major" : ""}"/>`;
     }
-
-    const pxPerMeter = scopeRadius / rangeMeters;
-    let headingDeg = Number(latestIndicators?.["compass"] ?? latestIndicators?.["compass1"] ?? latestIndicators?.["heading"]) || 0;
-    const headingRad = (headingDeg * Math.PI / 180) - (Math.PI / 2); // same convention as the map view's weapon-overlay rotation
-
-    // Range rings at 25/50/75/100% of current weapon range, unrotated
-    // (a circle looks the same either way).
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.strokeStyle = "rgba(0, 255, 204, 0.25)";
-    ctx.font = "9px monospace";
-    ctx.fillStyle = "rgba(0, 255, 204, 0.6)";
-    ctx.textAlign = "left";
-    [0.25, 0.5, 0.75, 1.0].forEach(frac => {
-        ctx.beginPath();
-        ctx.arc(0, 0, scopeRadius * frac, 0, Math.PI * 2);
-        ctx.lineWidth = frac === 1.0 ? 1.5 : 1;
-        ctx.stroke();
-        ctx.fillText(`${((rangeMeters * frac) / 1000).toFixed(1)}km`, 4, -scopeRadius * frac - 3);
-    });
-    ctx.restore();
-
-    // Weapon employment overlay and targets, in the heading-rotated frame -
-    // "forward" (current heading) always points up on this scope.
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(headingRad);
-
-    if (profile) {
-        if (profile.type === "missile" && chkRangeArc?.checked) {
-            const halfFovRad = (profile.fovDeg / 2) * (Math.PI / 180);
-            ctx.beginPath();
-            ctx.moveTo(0, 0);
-            ctx.arc(0, 0, scopeRadius, -halfFovRad, halfFovRad);
-            ctx.closePath();
-            ctx.fillStyle = "rgba(0, 255, 204, 0.08)";
-            ctx.fill();
-            ctx.strokeStyle = profile.color;
-            ctx.lineWidth = 1.5;
-            ctx.stroke();
-        } else if (profile.type === "glide_bomb" && chkRangeArc?.checked) {
-            const halfAngleRad = (profile.maneuverHalfAngleDeg ?? 30) * (Math.PI / 180);
-            ctx.beginPath();
-            ctx.moveTo(0, 0);
-            ctx.arc(0, 0, scopeRadius, -halfAngleRad, halfAngleRad);
-            ctx.closePath();
-            ctx.fillStyle = "rgba(153, 51, 255, 0.08)";
-            ctx.fill();
-            ctx.strokeStyle = profile.color;
-            ctx.lineWidth = 1.5;
-            ctx.stroke();
-        } else if (profile.type === "bomb" && chkBombCCIP?.checked) {
-            ctx.beginPath();
-            ctx.moveTo(0, 0);
-            ctx.lineTo(0, -scopeRadius);
-            ctx.strokeStyle = profile.color;
-            ctx.lineWidth = 2;
-            ctx.setLineDash([5, 4]);
-            ctx.stroke();
-            ctx.setLineDash([]);
-            ctx.beginPath();
-            ctx.arc(0, -scopeRadius, 6, 0, Math.PI * 2);
-            ctx.fillStyle = "rgba(255, 51, 51, 0.2)";
-            ctx.fill();
-            ctx.stroke();
-        }
-    }
-
-    // Plot nearby contacts at their real bearing/distance, scaled to this
-    // weapon's range instead of the map's real-world size - respects the
-    // same friendly/enemy visibility and weapon-appropriateness filters
-    // used elsewhere.
-    if (player) {
-        const spanX = getMapSpanXMeters();
-        const spanY = getMapSpanYMeters();
-        for (const obj of latestMapObj) {
-            if (typeof obj.x !== "number" || obj === player) continue;
-            if (!isTeamVisible(obj)) continue;
-            if (!isValidTargetForWeapon(obj, profile)) continue;
-
-            const dxMeters = (obj.x - player.x) * spanX;
-            const dyMeters = (obj.y - player.y) * spanY;
-            const distMeters = Math.hypot(dxMeters, dyMeters);
-            if (distMeters > rangeMeters * 1.15) continue; // off-scope
-
-            const px = dxMeters * pxPerMeter;
-            const py = dyMeters * pxPerMeter;
-            const team = classifyTeam(obj);
-            ctx.beginPath();
-            ctx.arc(px, py, 4, 0, Math.PI * 2);
-            ctx.fillStyle = team === "enemy" ? "#ff3366" : (team === "friendly" ? "#33ff57" : "#e0e0e0");
-            ctx.fill();
-        }
-    }
-    ctx.restore();
-
-    // Player marker fixed at scope center - the scope itself is egocentric,
-    // so the player never moves from the middle.
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.strokeStyle = "#00ffcc";
-    ctx.lineWidth = 1.5;
-    drawPlayerMarker();
-    ctx.restore();
-
-    // Header text - weapon name, computed range, live threat status,
-    // pulled from the same safety-status computation the map view uses.
-    ctx.fillStyle = "#00ffcc";
-    ctx.font = "bold 13px monospace";
-    ctx.textAlign = "center";
-    const weaponLabel = usingVehicleWeapons ? formatDbWeaponLabel(selWeapon.value) : selWeapon.value;
-    ctx.fillText(weaponLabel || "NO WEAPON SELECTED", cx, 24);
-    ctx.font = "11px monospace";
-    ctx.fillText(`RANGE: ${(rangeMeters / 1000).toFixed(2)} km`, cx, 42);
-    if (elThreat) {
-        ctx.fillStyle = elThreat.classList.contains("status-danger") ? "#ff3366"
-            : elThreat.classList.contains("status-caution") ? "#ffcc00" : "#33ff57";
-        ctx.fillText(elThreat.textContent, cx, 60);
-    }
+    c6TicksEl.innerHTML = s;
 }
 
-// ---------- Check-six / 360 air threat indicator ----------
-// Fixed in the top-right corner, heading-up (your nose is always "up" on
-// this ring, same convention as the Weapon MFD scope), drawn on top of
-// whichever view is active. Deliberately small and stays out of the way
-// when clear - it only gets loud when there's something to actually see.
-function drawCheckSixIndicator() {
-    const cx = canvas.width - 55;
-    const cy = 65;
-    const ringRadius = 32;
-
+function updateCheckSixBadge() {
+    if (!checkSixBadge) return;
     let headingDeg = Number(latestIndicators?.["compass"] ?? latestIndicators?.["compass1"] ?? latestIndicators?.["heading"]) || 0;
-    const playerHeadingRad = (headingDeg * Math.PI / 180) - (Math.PI / 2);
+
+    if (c6Ring) c6Ring.setAttribute("transform", `rotate(${-headingDeg} 60 60)`);
+    if (c6HdgEl) c6HdgEl.textContent = String(Math.round(headingDeg)).padStart(3, "0");
 
     const hasDanger = latestAirThreats.some(t => t.severity === "danger");
     const hasThreat = latestAirThreats.length > 0;
+    checkSixBadge.classList.toggle("danger", hasDanger);
+    checkSixBadge.classList.toggle("threat", !hasDanger && hasThreat);
 
-    ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0); // guarantee fixed-corner placement regardless of any transform left over upstream
-
-    ctx.beginPath();
-    ctx.arc(cx, cy, ringRadius, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(8, 12, 20, 0.75)";
-    ctx.fill();
-    ctx.lineWidth = 1.5;
-    ctx.strokeStyle = hasDanger ? "#ff3366" : hasThreat ? "#ffcc00" : "rgba(139, 155, 180, 0.5)";
-    ctx.stroke();
-
-    // Pulsing outer ring when something's actively aimed at you - the
-    // "noticeable" part of the ask, without needing audio.
-    if (hasDanger) {
-        const pulse = 0.35 + 0.35 * Math.sin(performance.now() / 180);
-        ctx.beginPath();
-        ctx.arc(cx, cy, ringRadius + 4, 0, Math.PI * 2);
-        ctx.strokeStyle = `rgba(255, 51, 102, ${pulse})`;
-        ctx.lineWidth = 2;
-        ctx.stroke();
+    if (!hasThreat || !c6BlipEl) {
+        if (c6BlipEl) c6BlipEl.style.display = "none";
+        return;
     }
+    // Nearest qualifying threat, same "closest" convention the sidebar's
+    // AIR THREAT text already uses (see updateAirThreatUI).
+    const nearest = latestAirThreats.reduce((a, b) => (b.distMeters < a.distMeters ? b : a), latestAirThreats[0]);
+    const R = 24; // matches the compass-ring radius in the SVG markup (c6-inner)
+    const bx = 60 + R * Math.sin(nearest.relBearingRad);
+    const by = 60 - R * Math.cos(nearest.relBearingRad);
+    c6BlipEl.setAttribute("cx", bx.toFixed(1));
+    c6BlipEl.setAttribute("cy", by.toFixed(1));
+    c6BlipEl.setAttribute("fill", nearest.severity === "danger" ? "#ff3366" : "#ffcc00");
+    c6BlipEl.style.display = "block";
+}
 
-    // Own-ship nose marker - dead ahead is always the top of this ring.
-    ctx.fillStyle = "#00ffcc";
-    ctx.beginPath();
-    ctx.moveTo(cx, cy - 6);
-    ctx.lineTo(cx - 4, cy + 4);
-    ctx.lineTo(cx + 4, cy + 4);
-    ctx.closePath();
-    ctx.fill();
-
-    // Threat blips at real relative bearing.
-    latestAirThreats.forEach(threat => {
-        const relativeAngle = threat.bearingRad - playerHeadingRad;
-        const screenAngle = relativeAngle - Math.PI / 2;
-        const bx = cx + ringRadius * Math.cos(screenAngle);
-        const by = cy + ringRadius * Math.sin(screenAngle);
-        ctx.beginPath();
-        ctx.arc(bx, by, threat.severity === "danger" ? 4.5 : 3.5, 0, Math.PI * 2);
-        ctx.fillStyle = threat.severity === "danger" ? "#ff3366" : "#ffcc00";
-        ctx.fill();
-    });
-
-    if (hasThreat) {
-        ctx.font = "bold 9px monospace";
-        ctx.textAlign = "center";
-        ctx.fillStyle = hasDanger ? "#ff3366" : "#ffcc00";
-        ctx.fillText(hasDanger ? "CHECK SIX" : "BANDIT", cx, cy + ringRadius + 14);
+// Draws the real tactical map (image + grid + airfields + objects) - v73
+// always runs this into the main #map-canvas every frame regardless of
+// viewMode, even while the MFD/controls bezel is covering it, so the MAP
+// page inside the bezel can blit a genuinely live frame (with every
+// overlay already applied) via drawImage rather than needing a second,
+// parallel copy of this whole rendering path targeting a different
+// canvas. The main canvas sits behind the controls-page-overlay
+// (z-index) while controls mode is up, so this costs a little idle GPU
+// time but changes nothing visually.
+function drawTacticalMapToMainCanvas() {
+    if (mapImage && isConnected) {
+        ctx.drawImage(mapImage, panX, panY, canvas.width * zoom, canvas.width * getMapYScaleFactor() * zoom);
+        renderGrid();
+        renderAirfields();
+        renderMapObjects();
+    } else {
+        ctx.fillStyle = "#080c14"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        renderGrid();
+        ctx.fillStyle = "#ffcc00"; ctx.font = "bold 13px monospace"; ctx.textAlign = "center";
+        ctx.fillText("WAITING FOR WAR THUNDER (LOCALHOST:8111)...", canvas.width / 2, canvas.height / 2);
     }
-
-    ctx.restore();
 }
 
 function render() {
@@ -3603,32 +3580,20 @@ function render() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     // These run every frame regardless of which view is showing, so safety
-    // status and the check-six widget stay live even on the Weapon MFD
-    // screen instead of freezing at whatever they last showed in map view.
+    // status and the check-six badge stay live even while the MFD/controls
+    // bezel is up, instead of freezing at whatever they last showed.
     updateNpcHeadings();
     updateSafetyStatus(findPlayerObject());
 
     try {
+        drawTacticalMapToMainCanvas();
         if (viewMode === "controls") {
             // The controls page is a plain HTML overlay (see
             // controls-page-overlay), not canvas-drawn - real DOM buttons
             // give proper native touch feedback and hit-testing for free.
-            // Its own live telemetry/radar updates happen here each frame.
-            ctx.fillStyle = "#080c14";
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            // Its own live telemetry/radar/map updates happen here each
+            // frame (updateMapPageLive blits the frame just drawn above).
             updateControlsScreenLive();
-        } else if (viewMode === "weapon") {
-            renderWeaponMFD();
-        } else if (mapImage && isConnected) {
-            ctx.drawImage(mapImage, panX, panY, canvas.width * zoom, canvas.width * getMapYScaleFactor() * zoom);
-            renderGrid();
-            renderAirfields();
-            renderMapObjects();
-        } else {
-            ctx.fillStyle = "#080c14"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-            renderGrid();
-            ctx.fillStyle = "#ffcc00"; ctx.font = "bold 13px monospace"; ctx.textAlign = "center";
-            ctx.fillText("WAITING FOR WAR THUNDER (LOCALHOST:8111)...", canvas.width / 2, canvas.height / 2);
         }
     } catch (err) {
         // A single bad frame (e.g. malformed data from a transient API
@@ -3642,13 +3607,13 @@ function render() {
         ctx.fillText("RENDER ERROR - see console - frame skipped", canvas.width / 2, 20);
     }
 
-    // Drawn last, on top of whichever view rendered above, in its own
-    // try/catch so a bug here can't freeze the map/weapon view and a bug
-    // in either of those can't take the threat indicator down with it.
+    // Drawn last, in its own try/catch so a bug here can't freeze the
+    // map/bezel view and a bug in either of those can't take the badge
+    // down with it.
     try {
-        drawCheckSixIndicator();
+        updateCheckSixBadge();
     } catch (err) {
-        console.error("[WT MFD] check-six indicator error (skipped this frame):", err);
+        console.error("[WT MFD] check-six badge error (skipped this frame):", err);
     }
 
     requestAnimationFrame(render);
