@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# v67
+# v91
 """
 WT Tactical MFD - local server for phone/tablet access
 ========================================================
@@ -26,11 +26,24 @@ USAGE:
     (default port: 8080)
 
 Then on your phone (same WiFi network as this Deck), open:
-    http://<this Deck's LAN IP>:8080/mfd.html
+    http://<this machine's LAN IP>:8080/mfd.html
 
-Find this Deck's LAN IP by running `hostname -I` in another terminal, or
-just watch this script's own startup banner - it prints its best guess.
+Find the LAN IP by running `hostname -I` in another terminal, or just
+watch this script's own startup banner - it prints its best guess.
+
+VIRTUAL GAMEPAD BACKENDS
+    Linux (Steam Deck):  uses evdev/uinput. Install evdev if missing:
+                         pip install evdev --break-system-packages
+
+    Windows:             uses vJoy 2.1.9.1 via ctypes. Install vJoy from
+                         https://github.com/shauleiz/vJoy/releases
+                         (use 2.1.9.1 specifically - 2.2.x has an expired
+                         code-signing cert that Windows 11 blocks).
+                         After installing, open "Configure vJoy" from the
+                         Start menu and create device 1 with at least 20
+                         buttons. No extra Python packages required.
 """
+import ctypes
 import functools
 import http.server
 import json
@@ -43,17 +56,6 @@ import time
 import urllib.error
 import urllib.request
 
-# Virtual gamepad support is OPTIONAL - if the evdev package isn't
-# installed, or /dev/uinput isn't accessible, the rest of this server
-# (serving files, proxying telemetry) still works fine; only the gamepad
-# button endpoints become unavailable. Never let a missing optional
-# feature take down the whole server.
-try:
-    from evdev import UInput, ecodes as ec
-    EVDEV_AVAILABLE = True
-except ImportError:
-    EVDEV_AVAILABLE = False
-
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
 WT_API_BASE = "http://localhost:8111"
 # Paths that are War Thunder's live telemetry (proxied through to the
@@ -63,86 +65,143 @@ PROXIED_PREFIXES = ("/state", "/indicators", "/map_obj.json", "/map_info.json", 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # ============================================================================
-# Virtual gamepad - lets the web UI's buttons press a real (virtual)
-# joystick/gamepad button, which you then bind to whatever in-game action
-# you want via War Thunder's own Controls settings (Gear, Flaps, etc.) -
-# same convenience as an extra macro pad, not automation: nothing here
-# decides WHEN to press anything, it only presses what a person taps
-# on-screen.
+# Virtual gamepad - cross-platform
 #
-# HISTORY (four iterations to get here, each confirmed/refuted by real
-# testing, not assumption):
-#   1. Virtual GAMEPAD spoofing a real Xbox 360 controller's exact
-#      vendor/product ID, for max compatibility - collided with an
-#      actual physical controller and stopped it connecting.
-#   2. Virtual KEYBOARD to avoid that collision - worked in War Thunder's
-#      Controls BINDING menu, but never actually registered during real
-#      gameplay. Likely cause: Wine's DirectInput keyboard reading is a
-#      separate code path from normal windowing key events.
-#   3. Back to a virtual GAMEPAD with a generic, non-spoofed identity -
-#      fixed the controller collision, but BTN_MODE (the "Guide/Home"
-#      button convention) got intercepted by Steam Input globally,
-#      opening Steam instead of reaching the game.
-#   4. Switched to the BTN_TRIGGER_HAPPY1-40 code range (0x2c0-0x2e7) -
-#      sits outside both the DirectInput gamepad range (BTN_GAMEPAD/
-#      BTN_MODE, which Proton's winebus and Steam Input treat specially)
-#      and the low BTN_BASE joystick range. Explicit non-zero vendor/
-#      product ID so SDL2 enumerates it as a real controller. Confirmed
-#      via direct testing: all 20 buttons bind correctly, nothing opens
-#      Steam at any point in the sequence.
+# Linux  → evdev/uinput (BTN_TRIGGER_HAPPY1-20, confirmed working on Deck)
+# Windows→ vJoy 2.1.9.1 via ctypes (no extra pip install needed)
 #
-# 20 buttons (not 11) - enough for the Controls page's 4-page x 5-button
-# layout (Flight / Weapons / Radar / In-Game MFD) without reusing the same
-# handful of outputs across different logical pages.
+# Both backends expose the same press_gamepad_button(name) call. The rest
+# of the server never touches platform specifics directly.
+#
+# LINUX HISTORY (kept here for context on why BTN_TRIGGER_HAPPY):
+#   1. Xbox 360 spoof → collided with a real physical controller.
+#   2. Virtual keyboard → registered in the bind menu but not in-game.
+#   3. Generic gamepad → BTN_MODE intercepted by Steam, opened overlay.
+#   4. BTN_TRIGGER_HAPPY1-40 (0x2c0-0x2e7) → outside DirectInput/Steam
+#      special ranges. All 20 buttons bind; nothing opens Steam.
+#
+# WINDOWS / vJoy NOTES:
+#   - vJoy is a kernel driver, so its device is ALWAYS visible in WT's
+#     deviceMapping even when serve.py isn't running. The auto-bind tool
+#     looks for it by a set of known vJoy name patterns (see VJOY_NAMES
+#     below) in addition to our Linux device identity.
+#   - Use vJoy 2.1.9.1 specifically. 2.2.x has an expired code-signing
+#     certificate that Windows 11 blocks at the driver level.
+#   - Configure vJoy device 1 with at least 20 buttons in "Configure vJoy"
+#     before running serve.py. Buttons are 1-based in vJoy (button 1 = H1).
 # ============================================================================
-GAMEPAD_CAPABILITIES = {}
-GAMEPAD_BUTTONS = {}  # name (used in the URL, "H1".."H20") -> evdev button code
-# The plain list of button names, independent of whether evdev/uinput is
-# actually available - the .blk calibration/sync logic below is pure text
-# processing and has nothing to do with the live virtual device, so it
-# shouldn't be unable to function just because evdev happens to be missing.
+
+PLATFORM = "linux" if sys.platform.startswith("linux") else \
+           "windows" if sys.platform == "win32" else "unsupported"
+
+# Names vJoy can appear as in an exported controls.blk. War Thunder writes
+# the device's HID name, which varies by vJoy version and Windows locale.
+# These cover every variant seen in the wild; all checked case-insensitively.
+VJOY_NAMES = [
+    "vjoy device",
+    "vjoy - virtual joystick",
+    "virtual joystick",
+    "vjoy",
+]
+
+EVDEV_AVAILABLE = False
+VJOY_AVAILABLE = False
+
+# The plain list of button names - used by the .blk auto-bind logic which
+# is pure text processing and works regardless of gamepad backend state.
 GAMEPAD_BUTTON_CODES = [f"H{i}" for i in range(1, 21)]
-gamepad_device = None
+GAMEPAD_BUTTONS = {}   # H1..H20 -> evdev code (Linux only)
+GAMEPAD_CAPABILITIES = {}
+gamepad_device = None  # evdev UInput instance (Linux) or None
 gamepad_lock = threading.Lock()
 
-if EVDEV_AVAILABLE:
-    # Falls back to raw numeric codes if a particular evdev version doesn't
-    # expose every BTN_TRIGGER_HAPPY name as a constant (some older
-    # versions only define a subset by name) - matches gamepad_test4.py.
-    GAMEPAD_BUTTONS = {}
-    for i in range(1, 21):
-        const_name = f"BTN_TRIGGER_HAPPY{i}"
-        GAMEPAD_BUTTONS[f"H{i}"] = getattr(ec, const_name, 0x2c0 + (i - 1))
+# ---------- Linux: evdev/uinput ----------
+if PLATFORM == "linux":
+    try:
+        from evdev import UInput, ecodes as ec
+        EVDEV_AVAILABLE = True
+    except ImportError:
+        pass
 
-    GAMEPAD_CAPABILITIES = {
-        ec.EV_KEY: list(GAMEPAD_BUTTONS.values()),
-        ec.EV_ABS: [
-            (ec.ABS_X, (0, -32768, 32767, 0, 0)),
-            (ec.ABS_Y, (0, -32768, 32767, 0, 0)),
-        ],
-    }
+    if EVDEV_AVAILABLE:
+        for i in range(1, 21):
+            const_name = f"BTN_TRIGGER_HAPPY{i}"
+            GAMEPAD_BUTTONS[f"H{i}"] = getattr(ec, const_name, 0x2c0 + (i - 1))
+        GAMEPAD_CAPABILITIES = {
+            ec.EV_KEY: list(GAMEPAD_BUTTONS.values()),
+            ec.EV_ABS: [
+                (ec.ABS_X, (0, -32768, 32767, 0, 0)),
+                (ec.ABS_Y, (0, -32768, 32767, 0, 0)),
+            ],
+        }
+
+# ---------- Windows: vJoy via ctypes ----------
+# vJoy's DLL exposes a simple C API. We only need three functions:
+#   AcquireVJD(rID)           - claim exclusive ownership of device rID
+#   SetBtn(value, rID, nBtn)  - set button nBtn on device rID to 0 or 1
+# vJoy button numbers are 1-based, so H1 → button 1, H20 → button 20.
+# The DLL lives at a fixed path for all vJoy installs.
+_vjoy = None
+_VJOY_DEVICE_ID = 1   # vJoy device number (1-based); 1 is the default device
+
+VJOY_DLL_PATHS = [
+    r"C:\Program Files\vJoy\x86\vJoyInterface.dll",
+    r"C:\Program Files (x86)\vJoy\x86\vJoyInterface.dll",
+]
+
+if PLATFORM == "windows":
+    for _dll_path in VJOY_DLL_PATHS:
+        if os.path.exists(_dll_path):
+            try:
+                _vjoy = ctypes.WinDLL(_dll_path)
+                # AcquireVJD returns TRUE (1) on success
+                if _vjoy.AcquireVJD(_VJOY_DEVICE_ID):
+                    VJOY_AVAILABLE = True
+                else:
+                    _vjoy = None
+            except Exception:
+                _vjoy = None
+            break
 
 
 def press_gamepad_button(name):
-    """Presses and releases one virtual gamepad button. Returns (ok, message)."""
-    if gamepad_device is None:
-        return False, "Virtual gamepad not available (evdev missing, or failed to create - see startup log)"
-    code = GAMEPAD_BUTTONS.get(name)
-    if code is None:
-        return False, f"Unknown button '{name}'. Valid: {', '.join(GAMEPAD_BUTTONS.keys())}"
-    # Locked so two near-simultaneous requests (e.g. someone double-tapping)
-    # can't interleave their press/release event pairs on the same device.
-    # ~20ms hold - matches gamepad_test4.py exactly, confirmed working
-    # end-to-end (all 20 buttons bound, nothing opened Steam) - shorter
-    # than the earlier 100ms figure since a different button-code range
-    # can behave differently, and this specific value is what was tested.
-    with gamepad_lock:
-        gamepad_device.write(ec.EV_KEY, code, 1)
-        gamepad_device.syn()
-        time.sleep(0.02)
-        gamepad_device.write(ec.EV_KEY, code, 0)
-        gamepad_device.syn()
-    return True, f"Pressed {name}"
+    """Press and release one virtual gamepad button. Returns (ok, message)."""
+
+    # --- Linux path ---
+    if PLATFORM == "linux":
+        if gamepad_device is None:
+            return False, "Virtual gamepad not available (evdev missing or failed — see startup log)"
+        code = GAMEPAD_BUTTONS.get(name)
+        if code is None:
+            return False, f"Unknown button '{name}'"
+        with gamepad_lock:
+            gamepad_device.write(ec.EV_KEY, code, 1)
+            gamepad_device.syn()
+            time.sleep(0.02)
+            gamepad_device.write(ec.EV_KEY, code, 0)
+            gamepad_device.syn()
+        return True, f"Pressed {name}"
+
+    # --- Windows path ---
+    if PLATFORM == "windows":
+        if not VJOY_AVAILABLE or _vjoy is None:
+            return False, (
+                "vJoy not available. Install vJoy 2.1.9.1 from "
+                "https://github.com/shauleiz/vJoy/releases and configure "
+                "device 1 with at least 20 buttons."
+            )
+        # H1 → button 1, H20 → button 20 (vJoy is 1-based)
+        try:
+            btn_num = int(name[1:])
+        except (ValueError, IndexError):
+            return False, f"Unknown button '{name}'"
+        with gamepad_lock:
+            _vjoy.SetBtn(1, _VJOY_DEVICE_ID, btn_num)
+            time.sleep(0.02)
+            _vjoy.SetBtn(0, _VJOY_DEVICE_ID, btn_num)
+        return True, f"Pressed {name}"
+
+    return False, f"Virtual gamepad not supported on this platform ({PLATFORM})"
 
 
 # ============================================================================
@@ -166,12 +225,29 @@ OUR_DEVICE_ID = "1234:5678"
 OUR_DEVICE_NAME = "WT MFD Virtual Joystick"
 
 DEFAULT_TARGET_IDS = {
-    "H1": "ID_GEAR", "H2": "ID_FLAPS", "H3": "ID_AIR_BRAKE",
-    "H4": "", "H5": "",
-    "H6": "", "H7": "ID_BOMBS", "H8": "ID_LOCK_TARGETING",
-    "H9": "", "H10": "", "H11": "", "H12": "",
-    "H13": "", "H14": "", "H15": "", "H16": "",
-    "H17": "", "H18": "", "H19": "", "H20": "",
+    # FLIGHT
+    "H1":  "ID_GEAR",
+    "H2":  "ID_FLAPS_UP",
+    "H3":  "ID_FLAPS_DOWN",
+    "H4":  "ID_PLANE_NIGHT_VISION",
+    "H5":  "ID_TOGGLE_NIGHT_VISION",
+    # WEAPONS
+    "H6":  "ID_TOGGLE_PERIODIC_FLARES",
+    "H7":  "ID_SWITCH_SHOOTING_CYCLE_SECONDARY",
+    "H8":  "ID_RESIZE_SECONDARY_WEAPON_SERIES",
+    "H9":  "ID_TOGGLE_LASER_DESIGNATOR",
+    "H10": "ID_UNLOCK_TARGETING_AT_POINT",
+    "H11": "ID_TOGGLE_ROCKETS_BALLISTIC_COMPUTER",
+    "H12": "ID_TOGGLE_CANNONS_BALLISTIC_COMPUTER",
+    # RADAR
+    "H13": "ID_SENSOR_SWITCH",
+    "H14": "ID_SENSOR_RANGE_SWITCH",
+    "H15": "ID_SENSOR_SCAN_PATTERN_SWITCH",
+    "H16": "ID_SENSOR_TYPE_SWITCH",
+    "H17": "ID_SENSOR_MODE_SWITCH",
+    "H18": "ID_SENSOR_TARGET_SWITCH",
+    "H19": "ID_SENSOR_TARGET_LOCK",
+    "H20": "",  # user-customisable, no default bind
 }
 
 
@@ -254,7 +330,19 @@ def parse_device_mapping(blk_text):
 
 def find_our_device(blk_text):
     devices = parse_device_mapping(blk_text)
-    matches = [d for d in devices if d["devId"] == OUR_DEVICE_ID or d["name"] == OUR_DEVICE_NAME]
+    # Linux: match by our exact vendor:product ID or device name.
+    # Windows/vJoy: vJoy's kernel driver always registers as a fixed HID
+    # device - the name varies slightly by version and locale, so we check
+    # against a list of known variants (case-insensitive). The devId for
+    # vJoy is typically "044f:b677" but also varies, so name-matching is
+    # the more reliable path on Windows.
+    def is_ours(d):
+        if d["devId"] == OUR_DEVICE_ID or d["name"] == OUR_DEVICE_NAME:
+            return True
+        name_lower = d["name"].lower()
+        return any(v in name_lower for v in VJOY_NAMES)
+
+    matches = [d for d in devices if is_ours(d)]
     connected = [d for d in matches if d["connected"]]
     return connected[0] if connected else (matches[0] if matches else None)
 
@@ -418,11 +506,28 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(b"War Thunder API not reachable (game not running or not in a match)")
 
     def end_headers(self):
-        # Applied to EVERY response (static files AND proxied telemetry)
-        # from one place, so it's never accidentally sent twice (duplicate
-        # CORS headers can make browsers reject the response outright) and
-        # never accidentally missed on some code path.
-        self.send_header("Access-Control-Allow-Origin", "*")
+        # SECURITY: CORS was previously a blanket "*", which means ANY
+        # website loaded in ANY browser on the same network - not just
+        # this extension - could fetch() these endpoints cross-origin and
+        # silently press gamepad buttons or read telemetry, without the
+        # user ever visiting anything related to this tool. That's a real
+        # drive-by risk once this is public on a LAN.
+        #
+        # The legitimate cross-origin caller is the Firefox extension
+        # popup, which always has a moz-extension:// origin. Requests
+        # loaded directly from serve.py itself (phone/browser access) are
+        # same-origin and don't need a CORS header at all. So: only grant
+        # CORS to a moz-extension:// (or chrome-extension://, for anyone
+        # who ports this) Origin - everything else gets no CORS header,
+        # which browsers treat as "cross-origin request denied".
+        #
+        # This does NOT stop a device that's already on your LAN from
+        # directly curling these endpoints (CORS is a browser-only, JS-only
+        # restriction) - see SECURITY.md for what this tool does and
+        # doesn't protect against.
+        origin = self.headers.get("Origin", "")
+        if origin.startswith("moz-extension://") or origin.startswith("chrome-extension://"):
+            self.send_header("Access-Control-Allow-Origin", origin)
         super().end_headers()
 
     def log_message(self, format, *args):
@@ -441,23 +546,88 @@ def get_lan_ip():
         s.close()
 
 
+def stdin_debug_loop():
+    """Runs in a background thread alongside the server - type a button
+    code (e.g. H1) directly into this terminal and it presses immediately,
+    with the same [GAMEPAD] log line a real request would produce. This
+    isolates "does serve.py/uinput actually work" from "is the network
+    request from the browser/phone even reaching serve.py" - if typing
+    here works but the browser doesn't trigger a log line at all, the
+    problem is network/JS, not this server or the virtual gamepad."""
+    print("[DEBUG] Type a button code (H1-H20) and press Enter to test it directly. Type 'quit' to stop this prompt (server keeps running).")
+    while True:
+        try:
+            line = input().strip().upper()
+        except (EOFError, KeyboardInterrupt):
+            break
+        if not line:
+            continue
+        if line in ("QUIT", "EXIT"):
+            print("[DEBUG] Stdin debug prompt stopped (server still running, Ctrl+C to fully stop).")
+            break
+        print(f"[GAMEPAD] <stdin debug> -> {line}", end=" ")
+        ok, message = press_gamepad_button(line)
+        print(f"{'OK' if ok else 'FAIL: ' + message}")
+
+
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="WT Tactical MFD - phone/tablet server")
+    parser.add_argument("--press", metavar="CODE", help="Press one virtual gamepad button (e.g. H1) and exit immediately, without starting the web server. Use this to test the uinput device in isolation.")
+    parser.add_argument("--no-debug-prompt", action="store_true", help="Don't start the interactive stdin debug prompt alongside the server.")
+    args = parser.parse_args()
+
+    if args.press:
+        # One-shot hardware test - no server, no network, just: does the
+        # virtual gamepad device itself work at all.
+        code = args.press.strip().upper()
+        print(f"Testing virtual gamepad: pressing {code}...")
+        if PLATFORM == "linux":
+            if not EVDEV_AVAILABLE:
+                print("FAILED: evdev not installed (pip install evdev --break-system-packages)")
+                sys.exit(1)
+            try:
+                gamepad_device = UInput(GAMEPAD_CAPABILITIES, name="WT MFD Virtual Joystick", vendor=0x1234, product=0x5678)
+                ok, message = press_gamepad_button(code)
+                print(f"{'OK' if ok else 'FAILED'}: {message}")
+                gamepad_device.close()
+            except Exception as e:
+                print(f"FAILED to create virtual gamepad: {e}")
+                print("Check /dev/uinput permissions (may need sudo, or a udev rule).")
+        elif PLATFORM == "windows":
+            if not VJOY_AVAILABLE:
+                print("FAILED: vJoy not available. Install vJoy 2.1.9.1 and configure device 1 with 20+ buttons.")
+                sys.exit(1)
+            ok, message = press_gamepad_button(code)
+            print(f"{'OK' if ok else 'FAILED'}: {message}")
+        else:
+            print(f"FAILED: platform '{PLATFORM}' not supported.")
+        sys.exit(0)
+
     lan_ip = get_lan_ip()
 
-    # Create the virtual gamepad ONCE, before the server starts, and reuse
-    # the same device object for every button-press request for as long as
-    # this process runs (creating a new virtual device per request would
-    # make the OS see it disappear/reappear constantly, which isn't how a
-    # real controller behaves). Generic identity - no vendor/product
-    # spoofing - confirmed via gamepad_test2.py to avoid the collision
-    # that broke a real physical controller with the original approach.
-    gamepad_status = "not available (evdev not installed)"
-    if EVDEV_AVAILABLE:
-        try:
-            gamepad_device = UInput(GAMEPAD_CAPABILITIES, name="WT MFD Virtual Joystick", vendor=0x1234, product=0x5678)
-            gamepad_status = "ready"
-        except Exception as e:
-            gamepad_status = f"FAILED to create ({e}) - check /dev/uinput permissions"
+    # Create the virtual gamepad ONCE at startup and reuse for all requests.
+    gamepad_status = "not available"
+    if PLATFORM == "linux":
+        if not EVDEV_AVAILABLE:
+            gamepad_status = "not available (evdev not installed — pip install evdev --break-system-packages)"
+        else:
+            try:
+                gamepad_device = UInput(GAMEPAD_CAPABILITIES, name="WT MFD Virtual Joystick", vendor=0x1234, product=0x5678)
+                gamepad_status = "ready (Linux/evdev, BTN_TRIGGER_HAPPY1-20)"
+            except Exception as e:
+                gamepad_status = f"FAILED to create ({e}) — check /dev/uinput permissions"
+    elif PLATFORM == "windows":
+        if VJOY_AVAILABLE:
+            gamepad_status = f"ready (Windows/vJoy, device {_VJOY_DEVICE_ID}, buttons 1-20)"
+        else:
+            gamepad_status = (
+                "not available — install vJoy 2.1.9.1 from "
+                "https://github.com/shauleiz/vJoy/releases "
+                "and configure device 1 with 20+ buttons"
+            )
+    else:
+        gamepad_status = f"not supported on this platform ({PLATFORM})"
 
     # directory=SCRIPT_DIR makes it serve mfd.html/mfd.js/mfd.css/etc from
     # THIS script's own folder regardless of the working directory it's
@@ -516,6 +686,7 @@ if __name__ == "__main__":
     if actual_port != PORT:
         print(f"NOTE: port {PORT} was already in use - automatically switched to {actual_port} instead.")
     print(f"Serving files from:  {SCRIPT_DIR}")
+    print(f"Drop your controls.blk into:  {CONTROLS_DIR}")
     print(f"Proxying telemetry from:  {WT_API_BASE}")
     print(f"Virtual gamepad:  {gamepad_status}")
     print()
@@ -525,6 +696,9 @@ if __name__ == "__main__":
     print("Press Ctrl+C to stop.")
     print("=" * 60)
 
+    if not args.no_debug_prompt:
+        threading.Thread(target=stdin_debug_loop, daemon=True).start()
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -532,3 +706,8 @@ if __name__ == "__main__":
     finally:
         if gamepad_device is not None:
             gamepad_device.close()
+        if VJOY_AVAILABLE and _vjoy is not None:
+            try:
+                _vjoy.RelinquishVJD(_VJOY_DEVICE_ID)
+            except Exception:
+                pass
